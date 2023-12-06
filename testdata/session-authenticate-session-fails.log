@@ -1,0 +1,5 @@
+authenticate-session reponse returns error
+DEBU[0069] usb endpoint write  buf="[3 0 10 0 1 177 254 130 116 213 185 247 114]" err="<nil>" len=13 n=13
+DEBU[0069] usb endpoint read   buf="[131 0 17 1 97 255 99 78 90 146 222 164 199 195 103 100 167 205 139 120]" err="<nil>" len=20 n=20
+DEBU[0069] usb endpoint write  buf="[4 0 17 1 230 74 138 59 142 2 184 192 177 76 248 189 11 240 157 89]" err="<nil>" len=20 n=20
+DEBU[0069] usb endpoint read   buf="[127 0 1 6]" err="<nil>" len=3 n=3

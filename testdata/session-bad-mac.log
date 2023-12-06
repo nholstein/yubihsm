@@ -1,0 +1,7 @@
+Corrupted last byte of last message (ping) with s/35/0
+DEBU[0069] usb endpoint write  buf="[3 0 10 0 1 177 254 130 116 213 185 247 114]" err="<nil>" len=13 n=13
+DEBU[0069] usb endpoint read   buf="[131 0 17 1 97 255 99 78 90 146 222 164 199 195 103 100 167 205 139 120]" err="<nil>" len=20 n=20
+DEBU[0069] usb endpoint write  buf="[4 0 17 1 230 74 138 59 142 2 184 192 177 76 248 189 11 240 157 89]" err="<nil>" len=20 n=20
+DEBU[0069] usb endpoint read   buf="[132 0 0]" err="<nil>" len=3 n=3
+DEBU[0071] usb endpoint write  buf="[5 0 25 1 185 227 23 184 166 174 42 36 10 36 84 247 147 253 204 150 209 103 219 72 119 124 155 7]" err="<nil>" len=28 n=28
+DEBU[0071] usb endpoint read   buf="[133 0 25 1 174 180 35 28 70 146 58 170 207 253 111 81 140 167 100 37 32 136 228 27 80 28 9 0]" err="<nil>" len=28 n=28

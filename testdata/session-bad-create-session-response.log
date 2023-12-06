@@ -1,0 +1,3 @@
+Corrupted MAC on the create-session response (last byte s/120/000)
+DEBU[0069] usb endpoint write  buf="[3 0 10 0 1 177 254 130 116 213 185 247 114]" err="<nil>" len=13 n=13
+DEBU[0069] usb endpoint read   buf="[131 0 17 1 97 255 99 78 90 146 222 164 199 195 103 100 167 205 139 000]" err="<nil>" len=20 n=20

@@ -1,0 +1,8 @@
+DEBU[0000] preflight complete                            cert= config= key= pid=84186 seccomp=false serial= syslog=false timeout=0s version=3.0.2
+DEBU[0000] takeoff                                       TLS=false listen="localhost:12345" pid=84186
+DEBU[0007] usb context not yet open                      Correlation-ID=06a38caa-3986-49e5-921b-b10cf9a3cd8c
+DEBU[0007] Returning a matched device                    Correlation-ID=06a38caa-3986-49e5-921b-b10cf9a3cd8c Device-Serial=0016499556 Wanted-Serial=
+DEBU[0007] usb endpoint read                             Correlation-ID=06a38caa-3986-49e5-921b-b10cf9a3cd8c buf="[]" err="transfer was cancelled" len=0 n=0
+DEBU[0007] usb endpoint write                            Correlation-ID=06a38caa-3986-49e5-921b-b10cf9a3cd8c buf="[6 0 0]" err="<nil>" len=3 n=3
+DEBU[0007] usb endpoint read                             Correlation-ID=06a38caa-3986-49e5-921b-b10cf9a3cd8c buf="[134 0 57 2 2 0 0 251 195 100 62 62 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48]" err="<nil>" len=60 n=60
+INFO[0007] handled request                               Content-Length=3 Content-Type=application/octet-stream Method=POST RemoteAddr="127.0.0.1:62629" StatusCode=200 URI=/connector/api User-Agent=Go-http-client/1.1 X-Real-IP=127.0.0.1 X-Request-ID=06a38caa-3986-49e5-921b-b10cf9a3cd8c latency=6.798208ms

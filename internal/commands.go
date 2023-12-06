@@ -1,0 +1,401 @@
+package yubihsm
+
+import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rsa"
+	"fmt"
+	"math/big"
+)
+
+// Challenge is a fixed-width challenge exchanged during authentication
+// and used to derive session keys.
+type Challenge [8]byte
+
+// Cryptogram is a fixed-width challenge exchanged during authentication
+// and used to derive session keys.
+type Cryptogram [8]byte
+
+// Cryptogram
+
+// PublicKey is the strongly-typed [crypto.PublicKey]
+type PublicKey interface {
+	Equal(x crypto.PublicKey) bool
+}
+
+func makeCmd(out []byte, c Command, l int) []byte {
+	return append(out, byte(c.ID()), byte(l>>8), byte(l))
+}
+
+type emptyResponse struct{}
+
+func (emptyResponse) Parse(b []byte) error {
+	if len(b) != 0 {
+		return badLength()
+	}
+	return nil
+}
+
+// Echo command and response type to/from YubiHSM2.
+type Echo []byte
+
+func (Echo) ID() CommandID {
+	return CommandEcho
+}
+
+func (e Echo) Serialize(out []byte) []byte {
+	out = makeCmd(out, e, len(e))
+	return Append(out, e)
+}
+
+func (e *Echo) Parse(b []byte) error {
+	*e = b
+	return nil
+}
+
+type CreateSessionCommand struct {
+	KeySetID      ObjectID
+	HostChallenge Challenge
+}
+
+func (*CreateSessionCommand) ID() CommandID {
+	return CommandCreateSession
+}
+
+func (c *CreateSessionCommand) Serialize(out []byte) []byte {
+	out = makeCmd(out, c, 10)
+	return Append(Append16(out, c.KeySetID), c.HostChallenge[:])
+}
+
+type CreateSessionResponse struct {
+	SessionID      byte
+	CardChallenge  Challenge
+	CardCryptogram Cryptogram
+}
+
+func (r *CreateSessionResponse) Parse(b []byte) error {
+	if len(b) != 17 {
+		return badLength()
+	}
+
+	r.SessionID = b[0]
+	copy(r.CardChallenge[:], b[1:9])
+	copy(r.CardCryptogram[:], b[9:17])
+
+	return nil
+}
+
+type AuthenticateSessionCommand struct {
+	SessionID      byte
+	HostCryptogram Cryptogram
+	CMAC           [8]byte
+}
+
+func (c *AuthenticateSessionCommand) ID() CommandID {
+	return CommandAuthenticateSession
+}
+
+func (c *AuthenticateSessionCommand) Serialize(out []byte) []byte {
+	out = makeCmd(out, c, 17)
+	out = Append8(out, c.SessionID)
+	out = Append(out, c.HostCryptogram[:])
+	return Append(out, c.CMAC[:])
+}
+
+type AuthenticateSessionResponse = emptyResponse
+
+type CloseSessionCommand struct{}
+
+func (c CloseSessionCommand) ID() CommandID {
+	return CommandCloseSession
+}
+
+func (c CloseSessionCommand) Serialize(out []byte) []byte {
+	return makeCmd(out, c, 0)
+}
+
+type CloseSessionResponse = emptyResponse
+
+type DeviceInfoCommand struct{}
+
+func (DeviceInfoCommand) ID() CommandID {
+	return CommandGetDeviceInfo
+}
+
+func (d DeviceInfoCommand) Serialize(out []byte) []byte {
+	return makeCmd(out, d, 0)
+}
+
+type DeviceInfoResponse struct {
+	Version    string
+	Serial     uint32
+	LogStore   uint8
+	LogLines   uint8
+	Algorithms uint64
+}
+
+func (r *DeviceInfoResponse) Parse(b []byte) error {
+	if len(b) < 9 {
+		return badLength()
+	}
+
+	r.Version = fmt.Sprintf("%d.%d.%d", b[0], b[1], b[2])
+	Parse32(b, 3, &r.Serial)
+	r.LogStore = b[7]
+	r.LogLines = b[8]
+	r.Algorithms = 0
+	for _, a := range b[9:] {
+		if a >= 64 {
+			return fmt.Errorf("invalid algorithm %d", a)
+		}
+		r.Algorithms |= 1 << a
+	}
+
+	return nil
+}
+
+type GetPublicKeyCommand struct {
+	KeyID ObjectID
+}
+
+func (*GetPublicKeyCommand) ID() CommandID {
+	return CommandGetPublicKey
+}
+
+func (g *GetPublicKeyCommand) Serialize(out []byte) []byte {
+	out = makeCmd(out, g, 2)
+	return Append16(out, g.KeyID)
+}
+
+type GetPublicKeyResponse struct {
+	PublicKey interface{ Equal(x crypto.PublicKey) bool }
+}
+
+func (g *GetPublicKeyResponse) Parse(b []byte) error {
+	if len(b) < 1 {
+		return badLength()
+	}
+
+	a := AlgorithmID(b[0])
+	b = b[1:]
+	switch a {
+	case AlgorithmED25519:
+		if len(b) != ed25519.PublicKeySize {
+			return fmt.Errorf("invalid Ed25519 public key")
+		}
+		g.PublicKey = ed25519.PublicKey(b)
+		return nil
+
+	case AlgorithmRSA2048:
+		return g.parsePublicKeyRSA(b, 2048/8)
+	case AlgorithmRSA3072:
+		return g.parsePublicKeyRSA(b, 3072/8)
+	case AlgorithmRSA4096:
+		return g.parsePublicKeyRSA(b, 4096/8)
+
+	case AlgorithmECP224:
+		return g.parsePublicKeyECDSA(b, elliptic.P224())
+	case AlgorithmECP256:
+		return g.parsePublicKeyECDSA(b, elliptic.P256())
+	case AlgorithmECP384:
+		return g.parsePublicKeyECDSA(b, elliptic.P384())
+	case AlgorithmECP521:
+		return g.parsePublicKeyECDSA(b, elliptic.P521())
+
+	default:
+		return fmt.Errorf("unsupported public key algorithm: %v", a)
+	}
+}
+
+func (g *GetPublicKeyResponse) parsePublicKeyRSA(b []byte, bytes int) error {
+	if len(b) != bytes {
+		return fmt.Errorf("invalid RSA public key length")
+	}
+
+	var n big.Int
+	n.SetBytes(b)
+	g.PublicKey = &rsa.PublicKey{
+		N: &n,
+		E: 65537,
+	}
+
+	return nil
+}
+
+func (g *GetPublicKeyResponse) parsePublicKeyECDSA(b []byte, curve elliptic.Curve) error {
+	var x, y big.Int
+	x.SetBytes(b[:len(b)/2])
+	y.SetBytes(b[len(b)/2:])
+	if !curve.IsOnCurve(&x, &y) {
+		return fmt.Errorf("invalid ECDSA public key")
+	}
+
+	g.PublicKey = &ecdsa.PublicKey{
+		Curve: curve,
+		X:     &x,
+		Y:     &y,
+	}
+
+	return nil
+}
+
+type listObjectsFilter func([]byte) []byte
+
+type ListObjectsCommand []listObjectsFilter
+
+// https://developers.yubico.com/YubiHSM2/Commands/List_Objects.html
+const (
+	filterID           = iota + 1 // 2 bytes
+	filterType                    // 1 byte
+	filterDomains                 // 2 bytes
+	filterCapabilities            // 8 bytes
+	filterAlgorithm               // 1 byte
+	filterLabel                   // 40 bytes
+)
+
+func TypeFilter(typeID TypeID) listObjectsFilter {
+	return func(b []byte) []byte {
+		return append(b, filterType, byte(typeID))
+	}
+}
+
+func LabelFilter(label string) listObjectsFilter {
+	return func(b []byte) []byte {
+		// Labels are padded and limited to 40 bytes
+		var f [1 + 40]byte
+		l := len(b)
+		b = Append(b, f[:])
+		b[l] = filterLabel
+		copy(b[l+1:], label)
+		return b
+	}
+}
+
+func NewListObjectsCommand(with ...listObjectsFilter) ListObjectsCommand {
+	return with
+}
+
+func (l ListObjectsCommand) ID() CommandID {
+	return CommandListObjects
+}
+
+func (l ListObjectsCommand) Serialize(out []byte) []byte {
+	var filters []byte
+	for _, filter := range l {
+		filters = filter(filters)
+	}
+
+	// TODO: this can be optimized
+	return Append(makeCmd(out, l, len(filters)), filters)
+}
+
+type listObjectsResponse struct {
+	Object   ObjectID
+	Type     TypeID
+	Sequence uint8
+}
+
+type ListObjectsResponse []listObjectsResponse
+
+func (l *ListObjectsResponse) Parse(b []byte) error {
+	// 2 byte Object ID, 1 byte Type, 1 byte Sequence
+	*l = make(ListObjectsResponse, len(b)/4)
+
+	for i := range *l {
+		object := &(*l)[i]
+		Parse16(b, 0, &object.Object)
+		Parse8(b, 2, &object.Type)
+		Parse8(b, 3, &object.Sequence)
+		b = b[4:]
+	}
+
+	if len(b) != 0 {
+		return fmt.Errorf("trailing bytes in list-objects response")
+	}
+	return nil
+}
+
+func makeSignCmd(out []byte, c Command, keyID ObjectID, data []byte) []byte {
+	// 2 byte key ID plus digest
+	out = makeCmd(out, c, 2+len(data))
+	return Append(Append16(out, keyID), data)
+}
+
+type SignECDSACommand struct {
+	KeyID  ObjectID
+	Digest []byte
+}
+
+func (s *SignECDSACommand) ID() CommandID {
+	return CommandSignECDSA
+}
+
+func (s *SignECDSACommand) Serialize(out []byte) []byte {
+	return makeSignCmd(out, s, s.KeyID, s.Digest)
+}
+
+type SignEdDSACommand struct {
+	KeyID   ObjectID
+	Message []byte
+}
+
+func (s *SignEdDSACommand) ID() CommandID {
+	return CommandSignEdDSA
+}
+
+func (s *SignEdDSACommand) Serialize(out []byte) []byte {
+	return makeSignCmd(out, s, s.KeyID, s.Message)
+}
+
+type SignPKCS1v15Command struct {
+	KeyID  ObjectID
+	Digest []byte
+}
+
+func (s *SignPKCS1v15Command) ID() CommandID {
+	return CommandSignPKCS1v15
+}
+
+func (s *SignPKCS1v15Command) Serialize(out []byte) []byte {
+	return makeSignCmd(out, s, s.KeyID, s.Digest)
+}
+
+type SignPSSCommand struct {
+	KeyID   ObjectID
+	MGF1    crypto.Hash
+	SaltLen uint16
+	Digest  []byte
+}
+
+func (s *SignPSSCommand) ID() CommandID {
+	return CommandSignPSS
+}
+
+func (s *SignPSSCommand) Serialize(out []byte) []byte {
+	var mgf1 AlgorithmID
+	switch s.MGF1 {
+	case crypto.SHA1:
+		mgf1 = AlgorithmMGF1SHA1
+	case crypto.SHA256:
+		mgf1 = AlgorithmMGF1SHA256
+	case crypto.SHA384:
+		mgf1 = AlgorithmMGF1SHA384
+	case crypto.SHA512:
+		mgf1 = AlgorithmMGF1SHA512
+	}
+
+	out = makeCmd(out, s, 2+1+2+len(s.Digest))
+	out = Append16(out, s.KeyID)
+	out = Append8(out, mgf1)
+	out = Append16(out, s.SaltLen)
+	return Append(out, s.Digest)
+}
+
+type SignResponse []byte
+
+func (s *SignResponse) Parse(b []byte) error {
+	*s = b
+	return nil
+}
