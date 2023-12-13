@@ -21,3 +21,23 @@ func TestCommands(t *testing.T) {
 		t.Errorf("CommandEncryptAEDCBC %x != 0x72", CommandEncryptAEDCBC)
 	}
 }
+
+func TestPut(t *testing.T) {
+	t.Log("purely to push coverage arbitrarily close to 100%")
+	var buf [7]byte
+	Put8(buf[0:], 1)
+	Put16(buf[1:], 0x0203)
+	Put32(buf[3:], 0x04050607)
+	expect := "\x01\x02\x03\x04\x05\x06\x07"
+	if string(buf[:]) != expect {
+		t.Errorf("%q != %q", buf, expect)
+	}
+}
+
+func TestStrings(t *testing.T) {
+	t.Log("purely to push coverage arbitrarily close to 100%")
+	for i := 0; i < 256; i++ {
+		t.Logf("%v", CommandID(i))
+		t.Logf("%v", TypeID(i))
+	}
+}

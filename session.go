@@ -1,11 +1,13 @@
 package yubihsm
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 
@@ -293,18 +295,25 @@ func (s *Session) Close(ctx context.Context, conn Connector) error {
 	return err
 }
 
-// Echo sends a [ping] message to the YubiHSM2 and returns the received
-// [pong] response.
+// Ping sends a [ping] message to the YubiHSM2 and returns the received
+// [pong] response. It uses the [Echo command] to send and receive data.
 //
 // The most common use of the echo command is to implement a session
-// keepalive heartbeat.
-func (s *Session) Echo(ctx context.Context, conn Connector, ping ...byte) ([]byte, error) {
-	echo := yubihsm.Echo(ping)
-	err := s.sendCommand(ctx, conn, echo, &echo)
+// keepalive heartbeat; to mimic the yubihsm-shell's behavior use:
+//
+//	err = session.Ping(ctx, conn, 0xff)
+//
+// [Echo command]: https://developers.yubico.com/YubiHSM2/Commands/Echo.html
+func (s *Session) Ping(ctx context.Context, conn Connector, data ...byte) error {
+	pingPong := yubihsm.Echo(data)
+	err := s.sendCommand(ctx, conn, pingPong, &pingPong)
 	if err != nil {
-		return nil, err
+		return err
+	} else if !bytes.Equal(data, pingPong) {
+		return errors.New("pong response incorrect")
 	}
-	return echo, nil
+
+	return nil
 }
 
 // GetPublicKey retrieves the public half of an asymmetric keypair on
@@ -335,10 +344,10 @@ func (s *Session) GetPublicKey(ctx context.Context, conn Connector, keyID Object
 //
 // [Effective Capabilities]: https://developers.yubico.com/YubiHSM2/Concepts/Effective_Capabilities.html
 func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string) (KeyPair, error) {
-	cmd := yubihsm.NewListObjectsCommand(
+	cmd := yubihsm.ListObjectsCommand{
 		yubihsm.TypeFilter(yubihsm.TypeAsymmetricKey),
 		yubihsm.LabelFilter(label),
-	)
+	}
 	var rsp yubihsm.ListObjectsResponse
 	err := s.sendCommand(ctx, conn, cmd, &rsp)
 	if err != nil {
@@ -351,7 +360,7 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 		return KeyPair{}, fmt.Errorf("HSM error: founc %d asymmetric-keys labeled %q", len(rsp), label)
 	}
 
-	_, err = s.Echo(ctx, conn, 0xff)
+	err = s.Ping(ctx, conn, 0xff)
 	if err != nil {
 		return KeyPair{}, fmt.Errorf("echo: %w", err)
 	}

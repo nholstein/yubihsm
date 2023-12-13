@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/rsa"
 	"errors"
 	"io"
@@ -142,8 +143,61 @@ func (k *KeyPair) AsCryptoSigner(ctx context.Context, conn Connector, session *S
 // decryption or if the [Effective Capabilities] are insufficient.
 //
 // [Effective Capabilities]: https://developers.yubico.com/YubiHSM2/Concepts/Effective_Capabilities.html
-func (k *KeyPair) Decrypt(_ context.Context, _ Connector, _ *Session, _ []byte, _ crypto.DecrypterOpts) ([]byte, error) {
-	return nil, errors.New("implement me")
+func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session, ciphertext []byte, opts crypto.DecrypterOpts) ([]byte, error) {
+	_, ok := k.publicKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("unsupported crypto.Decrypter")
+	}
+
+	var (
+		sessionKey []byte
+		cmd        yubihsm.Command
+	)
+	switch o := opts.(type) {
+	case nil:
+		cmd = &yubihsm.DecryptPKCS1v15Command{
+			KeyID:      k.keyID,
+			CipherText: ciphertext,
+		}
+
+	case *rsa.PKCS1v15DecryptOptions:
+		if o.SessionKeyLen > 0 {
+			sessionKey = make([]byte, o.SessionKeyLen)
+			_, err := io.ReadFull(rand.Reader, sessionKey)
+			if err != nil {
+				return nil, err
+			}
+		}
+		cmd = &yubihsm.DecryptPKCS1v15Command{
+			KeyID:      k.keyID,
+			CipherText: ciphertext,
+		}
+
+	case *rsa.OAEPOptions:
+		cmd = &yubihsm.DecryptOAEPCommand{
+			KeyID:      k.keyID,
+			MGF1:       orDefault(o.MGFHash, o.Hash),
+			LabelHash:  o.Hash,
+			CipherText: ciphertext,
+			Label:      o.Label,
+		}
+
+	default:
+		return nil, errors.New("unsupported RSA decryption algorithm")
+	}
+
+	var rsp yubihsm.DecryptResponse
+	err := session.sendCommand(ctx, conn, cmd, &rsp)
+	if err != nil {
+		var e yubihsm.Error
+		if sessionKey != nil && errors.As(err, &e) {
+			// TODO: check for specific error?
+			return sessionKey, nil
+		}
+		return nil, err
+	}
+
+	return rsp, nil
 }
 
 // AsCryptoDecrypter wraps the keypair into a type which can be used with

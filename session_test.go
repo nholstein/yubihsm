@@ -53,52 +53,120 @@ func loadReplay(t *testing.T, yubihsmConnectorLog string, options ...Authenticat
 	})
 }
 
+func loadMultiReplay(t *testing.T, yubihsmConnectorLog string, expect int, options ...AuthenticationOption) (context.Context, Connector, []Session) {
+	t.Helper()
+	ctx := testingContext(t)
+
+	if false {
+		conn := &logMessagesConnector{T: t}
+		conn.cleanup(t, yubihsmConnectorLog)
+
+		sessions := make([]Session, expect)
+		for i := range sessions {
+			session := &sessions[i]
+			err := session.Authenticate(ctx, conn)
+			if err != nil {
+				t.Errorf("sessions[%d].Authenticate(): %v", i, err)
+			} else {
+				t.Logf("session %d authenticated with SessionID: %d", i, session.sessionID)
+			}
+		}
+
+		return ctx, conn, sessions
+	}
+
+	conn := loadReplayConnector(t, yubihsmConnectorLog)
+	hostChallenges := conn.findHostChallenges(t)
+
+	sessions := make([]Session, len(hostChallenges))
+	for i, hostChallenge := range hostChallenges {
+		sessions[i].testAuthenticate(ctx, t, conn, append(options, func(c *authConfig) {
+			c.rand = bytes.NewReader(hostChallenge[:])
+		})...)
+	}
+
+	if expect >= 0 && expect != len(hostChallenges) {
+		t.Fatalf("expected to find %d hostChallenges, but found %d instead", expect, len(hostChallenges))
+	}
+
+	return ctx, conn, sessions
+}
+
 // testSendPing matches yubihsm-shell's behavior to frequently send an
 // Echo(0xff) command. It appears to do this to wake a send loop?
 func testSendPing(ctx context.Context, t *testing.T, conn Connector, session *Session) {
-	pong, err := session.Echo(ctx, conn, 0xff)
+	err := session.Ping(ctx, conn, 0xff)
 	if err != nil {
 		t.Helper()
-		t.Errorf("session.Echo(0xff): %v", err)
-	} else if string(pong) != "\xff" {
-		t.Helper()
-		t.Errorf("expected Pong(ff), got Pong(%x)", pong)
+		t.Errorf("session.Ping(0xff): %v", err)
 	}
 }
 
-func TestSessionAuthenticateSession(t *testing.T) {
-	ctx, conn, session := loadReplaySession(t, "session-open-close.log")
-	testSendPing(ctx, t, conn, session)
-
+func testSessionClose(ctx context.Context, t *testing.T, conn Connector, session *Session) {
 	err := session.Close(ctx, conn)
 	if err != nil {
 		t.Errorf("session.CloseSession(): %v", err)
 	}
 }
 
+func TestSessionAuthenticateSession(t *testing.T) {
+	ctx, conn, session := loadReplaySession(t, "session-open-close.log")
+	testSendPing(ctx, t, conn, session)
+	testSessionClose(ctx, t, conn, session)
+}
+
 func TestSessionAuthenticationFails(t *testing.T) {
 	for log, reason := range map[string]string{
 		"session-authenticate-session-fails.log":  "card responds with error",
 		"session-bad-create-session-response.log": "authentication with corrupted packets",
+		"session-too-many.log":                    "card has too many open sessions",
 	} {
 		ctx, conn, options := loadReplay(t, log)
 		var session Session
 		err := session.Authenticate(ctx, conn, options...)
 		if err == nil {
 			t.Fatalf("authentication should have failed: %s", reason)
+		} else {
+			t.Logf("authentication failed as desired with error: %v", err)
 		}
-		t.Logf("authentication failed as desired with error: %v", err)
+	}
+}
+
+func TestSessionConcurrent(t *testing.T) {
+	ctx, conn, sessions := loadMultiReplay(t, "session-concurrent.log", 16)
+
+	t.Logf("generate a slew of traffic")
+	ping := make([]byte, 0, 3*len(sessions))
+	for i := range sessions {
+		// Awkward packet lengths, 3 is mutually prime to the AES
+		// block size used for encryption.
+		ping = append(ping, byte(i), byte(i), byte(i))
+
+		for j := range sessions[:i+1] {
+			session := &sessions[j]
+			err := session.Ping(ctx, conn, ping...)
+			if err != nil {
+				t.Errorf("sessions[%d].Ping(%x): %v", i, ping, err)
+			}
+		}
+	}
+
+	for i := range sessions {
+		session := &sessions[i]
+		err := session.Close(ctx, conn)
+		if err != nil {
+			t.Errorf("sessions[%d].Close(): %v", i, err)
+		} else {
+			t.Logf("session %d closed", i)
+		}
 	}
 }
 
 func TestSessionBadMAC(t *testing.T) {
 	ctx, conn, session := loadReplaySession(t, "session-bad-mac.log")
-	pong, err := session.Echo(ctx, conn, 0xff)
+	err := session.Ping(ctx, conn, 0xff)
 	if err == nil {
 		t.Errorf("response with corrupted MAC should have failed")
-	}
-	if pong != nil {
-		t.Errorf("corrupted MAC should return nil pong")
 	}
 }
 
@@ -112,13 +180,9 @@ func TestSessionCustomKeyPassword(t *testing.T) {
 		WithAuthenticationKeys(encryptionKey, macKey),
 	)
 
-	pong, err := session.Echo(ctx, conn, 'b', 'a', 'z')
+	err := session.Ping(ctx, conn, 'b', 'a', 'z')
 	if err != nil {
-		t.Fatalf("session.Echo: %v", err)
-	}
-	t.Logf("pong: %q", pong)
-	if string(pong) != "baz" {
-		t.Errorf("\texpected \"baz\"")
+		t.Fatalf("session.Ping: %v", err)
 	}
 }
 

@@ -29,12 +29,41 @@ func makeCmd(out []byte, c Command, l int) []byte {
 	return append(out, byte(c.ID()), byte(l>>8), byte(l))
 }
 
+func makeObjectDataCmd(out []byte, c Command, keyID ObjectID, data []byte) []byte {
+	// 2 byte key ID plus data
+	out = makeCmd(out, c, 2+len(data))
+	return Append(Append16(out, keyID), data)
+}
+
+func mgf1AlgorithmID(mgf1 crypto.Hash) AlgorithmID {
+	switch mgf1 {
+	case crypto.SHA1:
+		return AlgorithmMGF1SHA1
+	case crypto.SHA256:
+		return AlgorithmMGF1SHA256
+	case crypto.SHA384:
+		return AlgorithmMGF1SHA384
+	case crypto.SHA512:
+		return AlgorithmMGF1SHA512
+	default:
+		// The HSM will flag an error
+		return 0
+	}
+}
+
 type emptyResponse struct{}
 
 func (emptyResponse) Parse(b []byte) error {
 	if len(b) != 0 {
 		return badLength()
 	}
+	return nil
+}
+
+type sliceResponse []byte
+
+func (s *sliceResponse) Parse(b []byte) error {
+	*s = b
 	return nil
 }
 
@@ -273,10 +302,6 @@ func LabelFilter(label string) listObjectsFilter {
 	}
 }
 
-func NewListObjectsCommand(with ...listObjectsFilter) ListObjectsCommand {
-	return with
-}
-
 func (l ListObjectsCommand) ID() CommandID {
 	return CommandListObjects
 }
@@ -317,12 +342,6 @@ func (l *ListObjectsResponse) Parse(b []byte) error {
 	return nil
 }
 
-func makeSignCmd(out []byte, c Command, keyID ObjectID, data []byte) []byte {
-	// 2 byte key ID plus digest
-	out = makeCmd(out, c, 2+len(data))
-	return Append(Append16(out, keyID), data)
-}
-
 type SignECDSACommand struct {
 	KeyID  ObjectID
 	Digest []byte
@@ -333,7 +352,7 @@ func (s *SignECDSACommand) ID() CommandID {
 }
 
 func (s *SignECDSACommand) Serialize(out []byte) []byte {
-	return makeSignCmd(out, s, s.KeyID, s.Digest)
+	return makeObjectDataCmd(out, s, s.KeyID, s.Digest)
 }
 
 type SignEdDSACommand struct {
@@ -346,7 +365,7 @@ func (s *SignEdDSACommand) ID() CommandID {
 }
 
 func (s *SignEdDSACommand) Serialize(out []byte) []byte {
-	return makeSignCmd(out, s, s.KeyID, s.Message)
+	return makeObjectDataCmd(out, s, s.KeyID, s.Message)
 }
 
 type SignPKCS1v15Command struct {
@@ -359,7 +378,7 @@ func (s *SignPKCS1v15Command) ID() CommandID {
 }
 
 func (s *SignPKCS1v15Command) Serialize(out []byte) []byte {
-	return makeSignCmd(out, s, s.KeyID, s.Digest)
+	return makeObjectDataCmd(out, s, s.KeyID, s.Digest)
 }
 
 type SignPSSCommand struct {
@@ -374,28 +393,49 @@ func (s *SignPSSCommand) ID() CommandID {
 }
 
 func (s *SignPSSCommand) Serialize(out []byte) []byte {
-	var mgf1 AlgorithmID
-	switch s.MGF1 {
-	case crypto.SHA1:
-		mgf1 = AlgorithmMGF1SHA1
-	case crypto.SHA256:
-		mgf1 = AlgorithmMGF1SHA256
-	case crypto.SHA384:
-		mgf1 = AlgorithmMGF1SHA384
-	case crypto.SHA512:
-		mgf1 = AlgorithmMGF1SHA512
-	}
-
 	out = makeCmd(out, s, 2+1+2+len(s.Digest))
 	out = Append16(out, s.KeyID)
-	out = Append8(out, mgf1)
+	out = Append8(out, mgf1AlgorithmID(s.MGF1))
 	out = Append16(out, s.SaltLen)
 	return Append(out, s.Digest)
 }
 
-type SignResponse []byte
+type SignResponse = sliceResponse
 
-func (s *SignResponse) Parse(b []byte) error {
-	*s = b
-	return nil
+type DecryptPKCS1v15Command struct {
+	KeyID      ObjectID
+	CipherText []byte
 }
+
+func (d *DecryptPKCS1v15Command) ID() CommandID {
+	return CommandDecryptPKCS1v15
+}
+
+func (d *DecryptPKCS1v15Command) Serialize(out []byte) []byte {
+	return makeObjectDataCmd(out, d, d.KeyID, d.CipherText)
+}
+
+type DecryptOAEPCommand struct {
+	KeyID      ObjectID
+	MGF1       crypto.Hash
+	LabelHash  crypto.Hash
+	CipherText []byte
+	Label      []byte
+}
+
+func (d *DecryptOAEPCommand) ID() CommandID {
+	return CommandDecryptOAEP
+}
+
+func (d *DecryptOAEPCommand) Serialize(out []byte) []byte {
+	digest := d.LabelHash.New()
+	_, _ = digest.Write(d.Label)
+
+	out = makeCmd(out, d, 2+1+len(d.CipherText)+digest.Size())
+	out = Append16(out, d.KeyID)
+	out = Append8(out, mgf1AlgorithmID(d.MGF1))
+	out = Append(out, d.CipherText)
+	return digest.Sum(out)
+}
+
+type DecryptResponse = sliceResponse

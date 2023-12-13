@@ -1,34 +1,92 @@
 package yubihsm
 
 import (
+	"bytes"
+	"crypto"
 	"errors"
 	"testing"
 )
 
-var responses = map[CommandID]func() Response{
-	CommandAuthenticateSession: func() Response { return &AuthenticateSessionResponse{} },
-	CommandCloseSession:        func() Response { return &CloseSessionResponse{} },
-	CommandCreateSession:       func() Response { return &CreateSessionResponse{} },
-	CommandEcho:                func() Response { return &Echo{} },
-	CommandGetDeviceInfo:       func() Response { return &DeviceInfoResponse{} },
-	CommandGetPublicKey:        func() Response { return &GetPublicKeyResponse{} },
-	CommandListObjects:         func() Response { return &ListObjectsResponse{} },
-	CommandSignECDSA:           func() Response { return &SignResponse{} },
-	CommandSignEdDSA:           func() Response { return &SignResponse{} },
-	CommandSignPKCS1v15:        func() Response { return &SignResponse{} },
-	CommandSignPSS:             func() Response { return &SignResponse{} },
+var commands = map[CommandID]func() (Command, Response){
+	CommandAuthenticateSession: func() (Command, Response) { return &AuthenticateSessionCommand{}, &AuthenticateSessionResponse{} },
+	CommandCloseSession:        func() (Command, Response) { return CloseSessionCommand{}, &CloseSessionResponse{} },
+	CommandCreateSession:       func() (Command, Response) { return &CreateSessionCommand{}, &CreateSessionResponse{} },
+	CommandEcho:                func() (Command, Response) { return Echo{}, &Echo{} },
+	CommandGetDeviceInfo:       func() (Command, Response) { return DeviceInfoCommand{}, &DeviceInfoResponse{} },
+	CommandGetPublicKey:        func() (Command, Response) { return &GetPublicKeyCommand{}, &GetPublicKeyResponse{} },
+	CommandListObjects:         func() (Command, Response) { return ListObjectsCommand{}, &ListObjectsResponse{} },
+	CommandSignECDSA:           func() (Command, Response) { return &SignECDSACommand{}, &SignResponse{} },
+	CommandSignEdDSA:           func() (Command, Response) { return &SignEdDSACommand{}, &SignResponse{} },
+	CommandSignPKCS1v15:        func() (Command, Response) { return &SignPKCS1v15Command{}, &SignResponse{} },
+	CommandSignPSS:             func() (Command, Response) { return &SignPSSCommand{}, &SignResponse{} },
+	CommandDecryptPKCS1v15:     func() (Command, Response) { return &DecryptPKCS1v15Command{}, &DecryptResponse{} },
+	CommandDecryptOAEP:         func() (Command, Response) { return &DecryptOAEPCommand{LabelHash: crypto.SHA256}, &DecryptResponse{} },
 
 	// fake it, errors processed within ParseResponse
-	commandError: func() Response { return &emptyResponse{} },
+	commandError: func() (Command, Response) { return Echo{}, &emptyResponse{} },
 }
 
 func createResponse(in []byte) (CommandID, Response) {
 	cmdID := CommandID(in[0] &^ 0x80)
-	response, ok := responses[cmdID]
+	command, ok := commands[cmdID]
 	if !ok {
 		return 0, nil
 	}
-	return cmdID, response()
+	_, rsp := command()
+	return cmdID, rsp
+}
+
+func TestMGF1(t *testing.T) {
+	for hash, expect := range map[crypto.Hash]int{
+		0:             0,
+		crypto.MD5:    0,
+		crypto.SHA1:   32,
+		crypto.SHA256: 33,
+		crypto.SHA384: 34,
+		crypto.SHA512: 35,
+	} {
+		got := mgf1AlgorithmID(hash)
+		if int(got) != expect {
+			t.Errorf("%v: got: %d expect: %d", hash, got, expect)
+		}
+	}
+}
+
+func TestSerialization(t *testing.T) {
+	for _, command := range commands {
+		cmd, _ := command()
+		var buf [256]byte
+		out := cmd.Serialize(buf[:0])
+		t.Logf("serialized %#v: %x", cmd, out)
+		if &out[0] != &buf[0] {
+			t.Errorf("\t%T was not serialized in-place", cmd)
+		}
+	}
+}
+
+func TestListObjects(t *testing.T) {
+	for label, expect := range map[string][]byte{
+		"p256":         []byte{0x48, 0x0, 0x2b, 0x2, 0x3, 0x6, 0x70, 0x32, 0x35, 0x36, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		"test-key":     []byte{0x48, 0x0, 0x2b, 0x2, 0x3, 0x6, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x6b, 0x65, 0x79, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		"test-rsa2048": []byte{0x48, 0x0, 0x2b, 0x2, 0x3, 0x6, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x72, 0x73, 0x61, 0x32, 0x30, 0x34, 0x38, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		"test-rsa3072": []byte{0x48, 0x0, 0x2b, 0x2, 0x3, 0x6, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x72, 0x73, 0x61, 0x33, 0x30, 0x37, 0x32, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		"test-rsa4096": []byte{0x48, 0x0, 0x2b, 0x2, 0x3, 0x6, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x72, 0x73, 0x61, 0x34, 0x30, 0x39, 0x36, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+	} {
+		cmd := ListObjectsCommand{
+			TypeFilter(TypeAsymmetricKey),
+			LabelFilter(label),
+		}
+		var buf [256]byte
+		got := cmd.Serialize(buf[:0])
+		t.Logf("serialized %q %#v:", label, cmd)
+		t.Logf("     %x", got)
+		if !bytes.Equal(got, expect) {
+			t.Logf("     %x", expect)
+		}
+		if &got[0] != &buf[0] {
+			t.Errorf("\t%T was not serialized in-place", cmd)
+		}
+	}
 }
 
 func TestResponseParsing(t *testing.T) {
@@ -63,7 +121,8 @@ func FuzzResponseParsing(f *testing.F) {
 		}
 
 		t.Logf("parsing %T from %x", rsp, in)
-		_ = ParseResponse(cmdID, rsp, in)
+		err := ParseResponse(cmdID, rsp, in)
+		t.Logf("  -> %v", err)
 	})
 }
 

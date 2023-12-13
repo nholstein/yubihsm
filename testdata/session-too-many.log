@@ -1,0 +1,2 @@
+DEBU[0032] usb endpoint write  buf="[3 0 10 0 1 199 16 101 19 41 181 131 81]"
+DEBU[0032] usb endpoint read   buf="[127 0 1 5]"
