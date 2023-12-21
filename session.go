@@ -210,7 +210,7 @@ func (s *Session) Authenticate(ctx context.Context, conn Connector, options ...A
 	}
 
 	var createSessionRsp yubihsm.CreateSessionResponse
-	err = connectorSend(ctx, conn, &createSessionCmd, &createSessionRsp)
+	err = sendPlaintext(ctx, conn, &createSessionCmd, &createSessionRsp)
 	if err != nil {
 		return err
 	}
@@ -222,7 +222,7 @@ func (s *Session) Authenticate(ctx context.Context, conn Connector, options ...A
 	}
 
 	var authenticateSessionRsp yubihsm.AuthenticateSessionResponse
-	return connectorSend(ctx, conn, authenticateSessionCmd, &authenticateSessionRsp)
+	return sendPlaintext(ctx, conn, authenticateSessionCmd, &authenticateSessionRsp)
 }
 
 // GetDeviceInfo retrieves the HSM's status information.

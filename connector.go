@@ -92,11 +92,10 @@ func (h *HTTPConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, er
 	client := orDefault(h.client, http.DefaultClient)
 	url := orDefault(h.url, "http://localhost:12345/connector/api")
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(cmd))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(cmd))
 	if err != nil {
 		return nil, err
 	}
-	req = req.WithContext(ctx)
 	req.Header.Set("Content-Type", "application/octet-stream")
 
 	rsp, err := client.Do(req)
@@ -112,11 +111,11 @@ func (h *HTTPConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, er
 	return io.ReadAll(rsp.Body)
 }
 
-func connectorSend(ctx context.Context, conn Connector, cmd yubihsm.Command, rsp yubihsm.Response) error {
-	// While the largest command supported is ~2kB, this should be
-	// large enough for the majority of commands sent without causing
-	// too much heap spillage.
-	var out [256]byte
+func sendPlaintext(ctx context.Context, conn Connector, cmd yubihsm.Command, rsp yubihsm.Response) error {
+	// While the largest command supported is ~2kB, this is large
+	// enough to hold authentication messages without spilling to
+	// the heap.
+	var out [32]byte
 
 	buf, err := conn.SendCommand(ctx, cmd.Serialize(out[:0]))
 	if err != nil {

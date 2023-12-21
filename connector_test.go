@@ -238,9 +238,9 @@ func TestUnauthenticatedGetDeviceInfo(t *testing.T) {
 	t.Run("get device info", func(t *testing.T) {
 		var cmd yubihsm.DeviceInfoCommand
 		var rsp yubihsm.DeviceInfoResponse
-		err := connectorSend(ctx, conn, &cmd, &rsp)
+		err := sendPlaintext(ctx, conn, &cmd, &rsp)
 		if err != nil {
-			t.Fatalf("connectorSend(%x): %v", cmd, err)
+			t.Fatalf("sendPlaintext(%x): %v", cmd, err)
 		}
 		t.Logf("devInfo: %#v", rsp)
 	})
