@@ -29,12 +29,12 @@ const (
 
 	// The maximum number of encrypted messages to send in a session
 	// before rekeying.
-	maxMessagesBeforeRekey = 16_000
+	maxMessagesBeforeRekey = 10_000
 
 	defaultAuthKeyID ObjectID = 1
 
-	// One byte of command ID, two byte length
-	minHeaderLen = 1 + 2
+	// command ID (0x05/0x85), length, session ID
+	sessionHeaderLength = 1 + 2 + 1
 )
 
 // ObjectID identifies a key or other object stored on a YubiHSM2.
@@ -47,6 +47,31 @@ type ObjectID = yubihsm.ObjectID
 //
 // These should always be randomly generated.
 type SessionKey [sessionKeyLen]byte
+
+type sessionError string
+
+func (s sessionError) Error() string {
+	return string(s)
+}
+
+const (
+	// ErrNotAuthenticated is returned if a command is sent over an
+	// unauthenticated [Session].
+	ErrNotAuthenticated sessionError = "cannot send message over unauthenticated session"
+
+	// ErrReauthenticationRequired is returned when the maximum number
+	// of commands have been sent over an encrypted [Session]. The
+	// session must be reauthenticated by calling [Session.Authenticate].
+	ErrReauthenticationRequired sessionError = "maximum messages sent; session must reauthenticate"
+
+	// ErrIncorrectMAC is returned when a response from the YubiHSM2
+	// has an inccorect MAC.
+	ErrIncorrectMAC sessionError = "session message MAC failed"
+
+	// ErrInvalidMessage is returned when a response message cannot
+	// be processed; generally indicating the length is incorrect.
+	ErrInvalidMessage sessionError = "invalid response message"
+)
 
 // AuthenticationOption configures an HSM [Session].
 type AuthenticationOption func(*authConfig)
@@ -401,10 +426,9 @@ func (s *Session) calculateCMAC(cmd yubihsm.CommandID, session byte, contents []
 
 func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.Command, rsp yubihsm.Response) error {
 	if s.messageCounter == 0 {
-		return fmt.Errorf("cannot send message over unauthenticated session")
+		return ErrNotAuthenticated
 	} else if s.messageCounter >= maxMessagesBeforeRekey {
-		// TODO: rekeying support
-		return fmt.Errorf("TODO: rekeying support")
+		return ErrReauthenticationRequired
 	}
 
 	// While the largest command supported is ~2kB, this should be
@@ -432,8 +456,7 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 	// after [message] in [buf] then memmove to the front of [buf]
 	// and append the padding and MAC. This would avoid a potential
 	// double allocation of the message for long commands.
-	const headerLen = 1 + 2 + 1
-	message := cmd.Serialize(buf[:headerLen])
+	message := cmd.Serialize(buf[:sessionHeaderLength])
 
 	// Pad the inner message to a multiple of the AES block size.
 	// Padding consists of a single 0x80 byte followed by zeroes.
@@ -441,11 +464,11 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 	// To optimize memory usage, additionally reserve space for the
 	// appended MAC.
 	const pad = "\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-	padding := aes.BlockSize - len(message[headerLen:])%aes.BlockSize
+	padding := aes.BlockSize - len(message[sessionHeaderLength:])%aes.BlockSize
 	message = append(message, pad[:padding+macLen]...)
 
 	// Encrypt the serialized and padded inner message.
-	inner := message[headerLen : len(message)-macLen]
+	inner := message[sessionHeaderLength : len(message)-macLen]
 	cipher.NewCBCEncrypter(block, iv[:]).CryptBlocks(inner, inner)
 
 	// Construct the session message header in-place. This must be
@@ -465,33 +488,46 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 	message, err := conn.SendCommand(ctx, message)
 	if err != nil {
 		return err
-	} else if len(message) < headerLen+minHeaderLen+macLen {
+	}
+
+	message, err = s.decryptSessionResponse(block, iv[:], message)
+	if err != nil {
+		return err
+	}
+
+	// Validate the inner message header correctness.
+	return yubihsm.ParseResponse(cmd.ID(), rsp, message)
+}
+
+func (s *Session) decryptSessionResponse(block cipher.Block, iv, message []byte) ([]byte, error) {
+	if len(message) < sessionHeaderLength+yubihsm.HeaderLength+macLen {
 		// Four bytes in outer session message, three bytes inner,
 		// eight bytes of MAC.
-		return fmt.Errorf("session message response too short")
+		return nil, ErrInvalidMessage
+	} else if len(message)%aes.BlockSize != sessionHeaderLength+macLen {
+		// Padding of the inner message is incorrect.
+		return nil, ErrInvalidMessage
 	}
 
 	msgCmdID, msgLen := yubihsm.ParseHeader(message)
 	if msgCmdID != yubihsm.ResponseSessionMessage {
-		return fmt.Errorf("expected a session message response")
-	} else if msgLen != len(message)-minHeaderLen {
-		return fmt.Errorf("session message length incorrect")
-	} else if message[3] != s.sessionID {
+		return nil, ErrInvalidMessage
+	} else if msgLen != len(message)-yubihsm.HeaderLength {
+		return nil, ErrInvalidMessage
+	} else if message[yubihsm.HeaderLength] != s.sessionID {
 		// TODO: need to synchronize across sessions!
-		return fmt.Errorf("received response intended for a different session")
+		return nil, fmt.Errorf("session %d received response for session %d", s.sessionID, message[3])
 	}
 
 	// Verify the response MAC by comparing it to the expected value.
-	inner = message[headerLen : len(message)-macLen]
+	inner := message[sessionHeaderLength : len(message)-macLen]
 	validMAC := s.calculateCMAC(yubihsm.ResponseSessionMessage, s.sessionID, inner)
 	recvedMAC := message[len(message)-macLen:]
 	if subtle.ConstantTimeCompare(validMAC[:macLen], recvedMAC) != 1 {
-		return fmt.Errorf("session message MAC failed")
+		return nil, ErrIncorrectMAC
 	}
 
 	// Decrypt the inner response message.
-	cipher.NewCBCDecrypter(block, iv[:]).CryptBlocks(inner, inner)
-
-	// Validate the inner message header correctness.
-	return yubihsm.ParseResponse(cmd.ID(), rsp, inner)
+	cipher.NewCBCDecrypter(block, iv).CryptBlocks(inner, inner)
+	return inner, nil
 }

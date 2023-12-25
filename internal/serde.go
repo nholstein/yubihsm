@@ -4,6 +4,12 @@ import (
 	"encoding/binary"
 )
 
+const (
+	// HeaderLength is the length of a command header; one byte of
+	// command ID and a two byte length.
+	HeaderLength = 1 + 2
+)
+
 func Append[V ~[]byte](b []byte, v V) []byte {
 	return append(b, v...)
 }

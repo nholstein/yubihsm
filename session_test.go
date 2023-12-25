@@ -3,19 +3,36 @@ package yubihsm
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
+
+	yubihsm "github.com/nholstein/yubihsm/internal"
 )
 
+// T is either a [testing.T] or [testing.Fuzz].
+type T interface {
+	Helper()
+	Errorf(string, ...any)
+	Fatalf(string, ...any)
+	Logf(string, ...any)
+	Cleanup(func())
+}
+
 // testingContext creates a context tied to the deadline of the test.
-func testingContext(t *testing.T) context.Context {
-	deadline, ok := t.Deadline()
-	if !ok {
-		deadline = time.Now().Add(time.Second * 10)
+func testingContext(t T) context.Context {
+	deadline := time.Now().Add(time.Second * 10)
+	if test, ok := t.(*testing.T); ok {
+		if d, ok := test.Deadline(); ok {
+			deadline = d
+		}
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	t.Cleanup(cancel)
@@ -23,7 +40,7 @@ func testingContext(t *testing.T) context.Context {
 }
 
 // testAuthenticate performs session authentication.
-func (s *Session) testAuthenticate(ctx context.Context, t *testing.T, conn Connector, options ...AuthenticationOption) {
+func (s *Session) testAuthenticate(ctx context.Context, t T, conn Connector, options ...AuthenticationOption) {
 	err := s.Authenticate(ctx, conn, options...)
 	if err != nil {
 		t.Helper()
@@ -35,25 +52,28 @@ func (s *Session) testAuthenticate(ctx context.Context, t *testing.T, conn Conne
 
 // loadReplaySession creates a [Session] using replayed yubihsm-connector
 // logs. The returned session is automatically authenticated.
-func loadReplaySession(t *testing.T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, *replayConnector, *Session) {
+func loadReplaySession(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, *replayConnector, *Session) {
 	ctx, conn, options := loadReplay(t, yubihsmConnectorLog, options...)
 	var session Session
 	session.testAuthenticate(ctx, t, conn, options...)
 	return ctx, conn, &session
 }
 
-func loadReplay(t *testing.T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, *replayConnector, []AuthenticationOption) {
-	t.Helper()
-	ctx := testingContext(t)
-	conn := loadReplayConnector(t, yubihsmConnectorLog)
-	hostChallenge := conn.findHostChallenge(t)
-
-	return ctx, conn, append(options, func(c *authConfig) {
+func replayHostChallenge(hostChallenge [8]byte, options ...AuthenticationOption) []AuthenticationOption {
+	return append(options, func(c *authConfig) {
 		c.rand = bytes.NewReader(hostChallenge[:])
 	})
 }
 
-func loadMultiReplay(t *testing.T, yubihsmConnectorLog string, expect int, options ...AuthenticationOption) (context.Context, Connector, []Session) {
+func loadReplay(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, *replayConnector, []AuthenticationOption) {
+	t.Helper()
+	ctx := testingContext(t)
+	conn := loadReplayConnector(t, yubihsmConnectorLog)
+	hostChallenge := conn.findHostChallenge(t)
+	return ctx, conn, replayHostChallenge(hostChallenge, options...)
+}
+
+func loadMultiReplay(t T, yubihsmConnectorLog string, expect int, options ...AuthenticationOption) (context.Context, Connector, []Session) {
 	t.Helper()
 	ctx := testingContext(t)
 
@@ -80,9 +100,7 @@ func loadMultiReplay(t *testing.T, yubihsmConnectorLog string, expect int, optio
 
 	sessions := make([]Session, len(hostChallenges))
 	for i, hostChallenge := range hostChallenges {
-		sessions[i].testAuthenticate(ctx, t, conn, append(options, func(c *authConfig) {
-			c.rand = bytes.NewReader(hostChallenge[:])
-		})...)
+		sessions[i].testAuthenticate(ctx, t, conn, replayHostChallenge(hostChallenge, options...)...)
 	}
 
 	if expect >= 0 && expect != len(hostChallenges) {
@@ -235,9 +253,7 @@ func TestSessionFiveDeviceInfos(t *testing.T) {
 
 	checkDeviceInfo(false)
 
-	session.testAuthenticate(ctx, t, conn, func(c *authConfig) {
-		c.rand = bytes.NewReader(hostChallenge[:])
-	})
+	session.testAuthenticate(ctx, t, conn, replayHostChallenge(hostChallenge)...)
 
 	for i := 0; i < 5; i++ {
 		checkDeviceInfo(true)
@@ -268,4 +284,159 @@ func TestSessionLoadKeyPair(t *testing.T) {
 	} else if !public.Equal(ed25519.PublicKey{0x2d, 0xb2, 0xec, 0xee, 0xa1, 0xb, 0xd8, 0x43, 0xb9, 0xb6, 0x77, 0x3a, 0xcc, 0xa6, 0x90, 0xe3, 0xd3, 0xc5, 0xb7, 0x91, 0x7e, 0x28, 0x1a, 0x3e, 0xe3, 0x85, 0xa4, 0xdb, 0x51, 0x2f, 0x6c, 0x4e}) {
 		t.Errorf("incorrect public key")
 	}
+}
+
+// sessionResponse is a [Connector] which responds to commands with the
+// encrypted and MACed content of an arbitrary response message.
+type sessionResponse struct {
+	*Session
+	responses [][]byte
+}
+
+// SendCommand encrypts and MACs the response message using the current
+// key of the [Session].
+func (s *sessionResponse) SendCommand(_ context.Context, _ []byte) ([]byte, error) {
+	if len(s.responses) == 0 {
+		return nil, io.EOF
+	}
+	response := s.responses[0]
+	if len(s.responses) > 1 {
+		s.responses = s.responses[1:]
+	}
+
+	return s.encryptResponse(response, 0), nil
+}
+
+func (s *Session) encryptResponse(response []byte, trim int) []byte {
+	out := make([]byte, 4+len(response), 4+15+8+len(response))
+	const pad = "\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+	padding := aes.BlockSize - len(out[4:])%aes.BlockSize
+	out = append(out, pad[:padding+macLen]...)
+
+	yubihsm.Put8(out[0:], yubihsm.ResponseSessionMessage)
+	yubihsm.Put16(out[1:], len(out)-3)
+	yubihsm.Put8(out[3:], s.sessionID)
+
+	inner := out[4 : len(out)-macLen]
+	copy(inner, response)
+
+	var iv [aes.BlockSize]byte
+	yubihsm.Put32(iv[len(iv)-4:], s.messageCounter-1)
+	block, _ := aes.NewCipher(s.encryptionKey[:])
+	block.Encrypt(iv[:], iv[:])
+	cipher.NewCBCEncrypter(block, iv[:]).CryptBlocks(inner, inner)
+
+	inner = inner[:len(inner)-trim]
+	out = out[:len(out)-trim]
+
+	mac := s.calculateCMAC(yubihsm.ResponseSessionMessage, s.sessionID, inner)
+	copy(out[len(out)-macLen:], mac[:])
+
+	return out
+}
+
+func makeSessionResponse(cmd yubihsm.CommandID, msg ...byte) []byte {
+	if cmd < 0x7f {
+		cmd |= yubihsm.CommandResponse
+	}
+	return append([]byte{
+		byte(cmd),
+		byte(len(msg) >> 8),
+		byte(len(msg)),
+	}, msg...)
+}
+
+func loadSessionResponses(t T, responses ...[]byte) (context.Context, Connector, *Session) {
+	ctx, _, session := loadReplaySession(t, "session-just-authenticate.log")
+	return ctx, &sessionResponse{session, responses}, session
+}
+
+func loadSessionResponse(t T, cmd yubihsm.CommandID, msg ...byte) (context.Context, Connector, *Session) {
+	return loadSessionResponses(t, makeSessionResponse(cmd, msg...))
+}
+
+func TestBadPongData(t *testing.T) {
+	ctx, conn, session := loadSessionResponse(t, yubihsm.CommandEcho, 0x0)
+	err := session.Ping(ctx, conn, 0xaa)
+	if err == nil || err.Error() != "pong response incorrect" {
+		t.Errorf("session.Ping(0xaa): %v", err)
+	}
+}
+
+func TestSessionRekey(t *testing.T) {
+	ctx, conn, session := loadSessionResponse(t, yubihsm.CommandEcho, 0xaa)
+	t.Logf("session authenticated; this includes one encrypted & authenticated AuthenticateSession command")
+
+	t.Run("send many message", func(t *testing.T) {
+		for i := 0; i < maxMessagesBeforeRekey-1; i++ {
+			if i%100 == 0 {
+				t.Logf("sending %dth session message", i)
+			}
+			err := session.Ping(ctx, conn, 0xaa)
+			if err != nil {
+				t.Fatalf("session.Ping(0xaa): %v", err)
+			}
+		}
+		t.Logf("sent %d session messages", maxMessagesBeforeRekey-1)
+	})
+
+	t.Run("expect reauthentication", func(t *testing.T) {
+		err := session.Ping(ctx, conn, 0xff)
+		t.Logf("subsequent messaged received error: %v", err)
+		if !errors.Is(err, ErrReauthenticationRequired) {
+			t.Errorf("session should have required reauthentication")
+		}
+	})
+
+	t.Run("reauthenticate", func(t *testing.T) {
+		conn := loadReplayConnector(t, "session-open-close.log")
+		hostChallenge := conn.findHostChallenge(t)
+		session.testAuthenticate(ctx, t, conn, replayHostChallenge(hostChallenge)...)
+
+		t.Log("ping and close should succeed on new session authentication")
+		testSendPing(ctx, t, conn, session)
+		testSessionClose(ctx, t, conn, session)
+	})
+}
+
+func FuzzSessionResponseParsing(f *testing.F) {
+	for _, seed := range responseCorpus {
+		f.Add(seed)
+	}
+
+	_, _, authenticated := loadSessionResponse(f, yubihsm.CommandEcho, 0)
+	for i := 1; i <= aes.BlockSize; i++ {
+		session := authenticated
+		f.Add(session.encryptResponse([]byte("Hello, World"), i))
+	}
+
+	f.Fuzz(func(t *testing.T, in []byte) {
+		session := authenticated
+		var iv [aes.BlockSize]byte
+		yubihsm.Put32(iv[len(iv)-4:], session.messageCounter)
+		block, _ := aes.NewCipher(session.encryptionKey[:])
+		block.Encrypt(iv[:], iv[:])
+
+		_, _ = session.decryptSessionResponse(block, iv[:], in)
+	})
+}
+
+var responseCorpus = [][]byte{
+	nil,
+	[]byte{0x85, 0, 1, 0},
+	[]byte{0x85, 0, 2, 0, 1},
+	[]byte{0x85, 0, 3, 0, 1, 2},
+	[]byte{0x85, 0, 4, 0, 1, 2, 3},
+	[]byte{0x85, 0, 5, 0, 1, 2, 3, 4},
+	[]byte{0x85, 0, 6, 0, 1, 2, 3, 4, 5},
+	[]byte{0x85, 0, 7, 0, 1, 2, 3, 4, 5, 6},
+	[]byte{0x85, 0, 8, 0, 1, 2, 3, 4, 5, 6, 7},
+	[]byte{0x85, 0, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8},
+	[]byte{0x85, 0, 10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+	[]byte{0x85, 0, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+	[]byte{0x85, 0, 12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+	[]byte{0x85, 0, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+	[]byte{0x85, 0, 14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+	[]byte{0x85, 0, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+	[]byte{0x85, 0, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 }

@@ -240,19 +240,15 @@ type Response interface {
 }
 
 func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
-	if len(buf) < 3 {
+	if len(buf) < HeaderLength {
 		return fmt.Errorf("response message too short")
 	}
 
 	rspCmdID, rspLen := ParseHeader(buf)
-	if len(buf)-3 < rspLen {
+	if len(buf)-HeaderLength < rspLen {
 		return fmt.Errorf("invalid response message length")
 	} else if rspCmdID == commandError {
-		var e Error
-		if rspLen == 1 {
-			e = Error(buf[3])
-		}
-		return fmt.Errorf("received an error response: (%d) %w", e, e)
+		return parseError(buf)
 	} else if rspCmdID != CommandResponse|cmdID {
 		return fmt.Errorf("received a response for a different command: %#02x", int(rspCmdID))
 	}
@@ -260,5 +256,5 @@ func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 	// TODO: check padding?
 	// We currently just fuzzily lop the padding off the end.
 
-	return rsp.Parse(buf[3 : 3+rspLen])
+	return rsp.Parse(buf[HeaderLength : HeaderLength+rspLen])
 }

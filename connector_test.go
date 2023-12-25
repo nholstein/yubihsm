@@ -34,7 +34,7 @@ var matchConnectorLogLine = regexp.MustCompile(`^DEBU\[\d{4}\]\susb endpoint (\w
 // and any parameters must be bit-for-bit identical. The benefit is that
 // a [Session] can be deterministically verified.
 type replayConnector struct {
-	*testing.T
+	T
 	messages [][2][]byte
 }
 
@@ -67,7 +67,7 @@ type replayConnector struct {
 //     Because the echo commands are encrypted within a session, it's
 //     difficult to check if a logged command is an echo. However, an
 //     echo command from yubihsm-shell is always 28 bytes in length.
-func loadReplayConnector(t *testing.T, yubihsmConnectorLog string) *replayConnector {
+func loadReplayConnector(t T, yubihsmConnectorLog string) *replayConnector {
 	log, err := testdataLogs.Open("testdata/" + yubihsmConnectorLog)
 	if err != nil {
 		t.Helper()
@@ -76,7 +76,7 @@ func loadReplayConnector(t *testing.T, yubihsmConnectorLog string) *replayConnec
 	return loadReplayConnectorReader(t, log)
 }
 
-func loadReplayConnectorReader(t *testing.T, yubihsmConnectorLog io.Reader) *replayConnector {
+func loadReplayConnectorReader(t T, yubihsmConnectorLog io.Reader) *replayConnector {
 	r := replayConnector{T: t}
 	lines := bufio.NewScanner(yubihsmConnectorLog)
 
@@ -138,7 +138,7 @@ func parseUsbEndpointLine(lines *bufio.Scanner) (direction string, message []byt
 	return "", nil
 }
 
-func (r *replayConnector) findHostChallenges(t *testing.T) [][8]byte {
+func (r *replayConnector) findHostChallenges(t T) [][8]byte {
 	var hostChallenges [][8]byte
 	for _, m := range r.messages {
 		if m[0][0] == byte(yubihsm.CommandCreateSession) &&
@@ -152,7 +152,7 @@ func (r *replayConnector) findHostChallenges(t *testing.T) [][8]byte {
 	return hostChallenges
 }
 
-func (r *replayConnector) findHostChallenge(t *testing.T) [8]byte {
+func (r *replayConnector) findHostChallenge(t T) [8]byte {
 	hostChallenges := r.findHostChallenges(t)
 	if len(hostChallenges) == 0 {
 		t.Fatalf("could not recover CreateSession.HostChallenge in replayConnector messages")
@@ -184,7 +184,7 @@ func (r *replayConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, 
 
 // Used to record logs from a real YubiHSM2 for replayConnector.
 type logMessagesConnector struct {
-	*testing.T
+	T
 	msgs [][2][]byte
 	http HTTPConnector
 }
@@ -198,12 +198,12 @@ func (l *logMessagesConnector) SendCommand(ctx context.Context, cmd []byte) ([]b
 	return rsp, err
 }
 
-func (l *logMessagesConnector) cleanup(t *testing.T, logName string) {
+func (l *logMessagesConnector) cleanup(t T, logName string) {
 	t.Cleanup(func() { l.saveTestdata(t, logName) })
 }
 
-func (l *logMessagesConnector) saveTestdata(t *testing.T, logName string) {
-	if t.Failed() {
+func (l *logMessagesConnector) saveTestdata(t T, logName string) {
+	if test, ok := t.(*testing.T); ok && test.Failed() {
 		return
 	}
 
