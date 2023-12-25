@@ -313,13 +313,13 @@ func (s *Session) encryptResponse(response []byte, trim int) []byte {
 	out := make([]byte, 4+len(response), 4+15+8+len(response))
 	const pad = "\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 	padding := aes.BlockSize - len(out[4:])%aes.BlockSize
-	out = append(out, pad[:padding+macLen]...)
+	out = append(out, pad[:padding+macLength]...)
 
 	yubihsm.Put8(out[0:], yubihsm.ResponseSessionMessage)
 	yubihsm.Put16(out[1:], len(out)-3)
 	yubihsm.Put8(out[3:], s.sessionID)
 
-	inner := out[4 : len(out)-macLen]
+	inner := out[4 : len(out)-macLength]
 	copy(inner, response)
 
 	var iv [aes.BlockSize]byte
@@ -332,7 +332,7 @@ func (s *Session) encryptResponse(response []byte, trim int) []byte {
 	out = out[:len(out)-trim]
 
 	mac := s.calculateCMAC(yubihsm.ResponseSessionMessage, s.sessionID, inner)
-	copy(out[len(out)-macLen:], mac[:])
+	copy(out[len(out)-macLength:], mac[:])
 
 	return out
 }

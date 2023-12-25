@@ -25,7 +25,7 @@ const (
 	sessionKeyLen = 16
 
 	// The length of the MAC field in a message
-	macLen = 8
+	macLength = 8
 
 	// The maximum number of encrypted messages to send in a session
 	// before rekeying.
@@ -219,9 +219,6 @@ func (s *Session) authenticateSession(encKey, macKey SessionKey, hostChallenge y
 
 // Authenticate performs the cryptographic exchange to authenticate with
 // the YubiHSM2 and establish an encrypted communication channel.
-//
-// [rand] is used to generate cryptographic secrets, you should almost
-// always use [crypto/rand.Reader].
 func (s *Session) Authenticate(ctx context.Context, conn Connector, options ...AuthenticationOption) error {
 	// Clear out all keys when beginning authentication.
 	*s = Session{}
@@ -408,7 +405,7 @@ func (s *Session) calculateCMAC(cmd yubihsm.CommandID, session byte, contents []
 
 	// Compute the CMAC over the chaining MAC, the message header,
 	// and its contents.
-	l := 1 + macLen + len(contents)
+	l := 1 + macLength + len(contents)
 	header := [4]byte{byte(cmd), byte(l >> 8), byte(l), session}
 	_, _ = mac.Write(s.macChaining[:])
 	_, _ = mac.Write(header[:])
@@ -431,17 +428,6 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 	// too much heap spillage.
 	var buf [256]byte
 
-	// Create the CBC IV: 16 bytes; 12 zeroes and and 32-bit counter.
-	// The serialized counter is encrypted with the session encryption
-	// key to result in the IV.
-	//
-	// Increment the counter early to ensure an IV is never reused.
-	var iv [aes.BlockSize]byte
-	yubihsm.Put32(iv[len(iv)-4:], s.messageCounter)
-	s.messageCounter++
-	block, _ := aes.NewCipher(s.encryptionKey[:])
-	block.Encrypt(iv[:], iv[:])
-
 	// We serialize and encrypt the command message in-place within a
 	// session message envelope. The overhead consists of the 4-byte
 	// header and trailer of padding and 8-byte MAC.
@@ -460,23 +446,17 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 	// appended MAC.
 	const pad = "\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 	padding := aes.BlockSize - len(message[sessionHeaderLength:])%aes.BlockSize
-	message = append(message, pad[:padding+macLen]...)
-
-	// Encrypt the serialized and padded inner message.
-	inner := message[sessionHeaderLength : len(message)-macLen]
-	cipher.NewCBCEncrypter(block, iv[:]).CryptBlocks(inner, inner)
+	message = append(message, pad[:padding+macLength]...)
 
 	// Construct the session message header in-place. This must be
 	// done after inner message serialization and padding because
 	// the total length must be known.
 	yubihsm.Put8(message[0:], yubihsm.CommandSessionMessage)
-	yubihsm.Put16(message[1:], len(message)-3)
+	yubihsm.Put16(message[1:], len(message)-yubihsm.HeaderLength)
 	yubihsm.Put8(message[3:], s.sessionID)
 
-	// The appended MAC is the first 8 bytes of the truncated session
-	// chaining MAC.
-	s.macChaining = s.calculateCMAC(yubihsm.CommandSessionMessage, s.sessionID, inner)
-	copy(message[len(message)-macLen:], s.macChaining[:macLen])
+	// Encrypt the session message and insert the CMAC.
+	block, iv := s.encryptThenMAC(message)
 
 	// Send the command, and verify the session message response
 	// envelope.
@@ -485,7 +465,7 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 		return err
 	}
 
-	message, err = s.decryptSessionResponse(block, iv[:], message)
+	message, err = s.decryptSessionResponse(block, iv, message)
 	if err != nil {
 		return err
 	}
@@ -494,12 +474,42 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 	return yubihsm.ParseResponse(cmd.ID(), rsp, message)
 }
 
+// encryptThenMAC encrypte the message in-place then computes the message
+// CMAC and writes it in the final 8 bytes of the message. Space for the
+// header and MAC must be allocated at the front and back.
+//
+// Returns the AES block cipher and IV which can be used to decrypt the
+// response.
+func (s *Session) encryptThenMAC(message []byte) (cipher.Block, []byte) {
+	// Create the CBC IV: 16 bytes; 12 zeroes and and 32-bit counter.
+	// The serialized counter is encrypted with the session encryption
+	// key to result in the IV.
+	//
+	// Increment the counter early to ensure an IV is never reused.
+	var iv [aes.BlockSize]byte
+	yubihsm.Put32(iv[len(iv)-4:], s.messageCounter)
+	s.messageCounter++
+	block, _ := aes.NewCipher(s.encryptionKey[:])
+	block.Encrypt(iv[:], iv[:])
+
+	// Encrypt the serialized and padded inner message.
+	inner := message[sessionHeaderLength : len(message)-macLength]
+	cipher.NewCBCEncrypter(block, iv[:]).CryptBlocks(inner, inner)
+
+	// The appended MAC is the first 8 bytes of the truncated session
+	// chaining MAC.
+	s.macChaining = s.calculateCMAC(yubihsm.CommandSessionMessage, s.sessionID, inner)
+	copy(message[len(message)-macLength:], s.macChaining[:macLength])
+
+	return block, iv[:]
+}
+
 func (s *Session) decryptSessionResponse(block cipher.Block, iv, message []byte) ([]byte, error) {
-	if len(message) < sessionHeaderLength+yubihsm.HeaderLength+macLen {
+	if len(message) < sessionHeaderLength+yubihsm.HeaderLength+macLength {
 		// Four bytes in outer session message, three bytes inner,
 		// eight bytes of MAC.
 		return nil, ErrInvalidMessage
-	} else if len(message)%aes.BlockSize != sessionHeaderLength+macLen {
+	} else if len(message)%aes.BlockSize != sessionHeaderLength+macLength {
 		// Padding of the inner message is incorrect.
 		return nil, ErrInvalidMessage
 	}
@@ -515,10 +525,10 @@ func (s *Session) decryptSessionResponse(block cipher.Block, iv, message []byte)
 	}
 
 	// Verify the response MAC by comparing it to the expected value.
-	inner := message[sessionHeaderLength : len(message)-macLen]
+	inner := message[sessionHeaderLength : len(message)-macLength]
 	validMAC := s.calculateCMAC(yubihsm.ResponseSessionMessage, s.sessionID, inner)
-	recvedMAC := message[len(message)-macLen:]
-	if subtle.ConstantTimeCompare(validMAC[:macLen], recvedMAC) != 1 {
+	recvedMAC := message[len(message)-macLength:]
+	if subtle.ConstantTimeCompare(validMAC[:macLength], recvedMAC) != 1 {
 		return nil, ErrIncorrectMAC
 	}
 

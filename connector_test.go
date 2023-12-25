@@ -73,10 +73,10 @@ func loadReplayConnector(t T, yubihsmConnectorLog string) *replayConnector {
 		t.Helper()
 		t.Fatalf("could not load testdata/%s: %v", yubihsmConnectorLog, err)
 	}
-	return loadReplayConnectorReader(t, log)
+	return loadReplayConnectorReader(t, log, yubihsmConnectorLog)
 }
 
-func loadReplayConnectorReader(t T, yubihsmConnectorLog io.Reader) *replayConnector {
+func loadReplayConnectorReader(t T, yubihsmConnectorLog io.Reader, name string) *replayConnector {
 	r := replayConnector{T: t}
 	lines := bufio.NewScanner(yubihsmConnectorLog)
 
@@ -118,7 +118,7 @@ func loadReplayConnectorReader(t T, yubihsmConnectorLog io.Reader) *replayConnec
 		}
 	})
 
-	t.Logf("loaded %d command/response pairs from yubihsm-connector logs", len(r.messages))
+	t.Logf("loaded %d command/response pairs from yubihsm-connector logs %q", len(r.messages), name)
 	return &r
 }
 
@@ -129,13 +129,17 @@ func parseUsbEndpointLine(lines *bufio.Scanner) (direction string, message []byt
 			continue
 		}
 
-		for _, m := range strings.Fields(string(matches[2])) {
-			b, _ := strconv.Atoi(m)
-			message = append(message, byte(b))
-		}
-		return string(matches[1]), message
+		return string(matches[1]), parseLoggedBytes(matches[2])
 	}
 	return "", nil
+}
+
+func parseLoggedBytes(match []byte) (message []byte) {
+	for _, m := range strings.Fields(string(match)) {
+		b, _ := strconv.Atoi(m)
+		message = append(message, byte(b))
+	}
+	return
 }
 
 func (r *replayConnector) findHostChallenges(t T) [][8]byte {

@@ -171,7 +171,8 @@ const (
 type TypeID uint8
 
 const (
-	TypeOpaque TypeID = iota + 1
+	_ TypeID = iota
+	TypeOpaque
 	TypeAuthenticationKey
 	TypeAsymmetricKey
 	TypeWrapKey
