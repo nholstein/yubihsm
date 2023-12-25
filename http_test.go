@@ -52,7 +52,7 @@ func TestHTTPConnector(t *testing.T) {
 	)
 
 	var session Session
-	session.testAuthenticate(ctx, t, &conn, options...)
+	testAuthenticate(ctx, t, &conn, &session, options...)
 	testSendPing(ctx, t, &conn, &session)
 	testSessionClose(ctx, t, &conn, &session)
 }

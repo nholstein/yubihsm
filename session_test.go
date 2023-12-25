@@ -41,7 +41,7 @@ func testingContext(t T) context.Context {
 }
 
 // testAuthenticate performs session authentication.
-func (s *Session) testAuthenticate(ctx context.Context, t T, conn Connector, options ...AuthenticationOption) {
+func testAuthenticate(ctx context.Context, t T, conn Connector, s *Session, options ...AuthenticationOption) {
 	err := s.Authenticate(ctx, conn, options...)
 	if err != nil {
 		t.Helper()
@@ -56,7 +56,7 @@ func (s *Session) testAuthenticate(ctx context.Context, t T, conn Connector, opt
 func loadReplaySession(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, *replayConnector, *Session) {
 	ctx, conn, options := loadReplay(t, yubihsmConnectorLog, options...)
 	var session Session
-	session.testAuthenticate(ctx, t, conn, options...)
+	testAuthenticate(ctx, t, conn, &session, options...)
 	return ctx, conn, &session
 }
 
@@ -101,7 +101,7 @@ func loadMultiReplay(t T, yubihsmConnectorLog string, expect int, options ...Aut
 
 	sessions := make([]Session, len(hostChallenges))
 	for i, hostChallenge := range hostChallenges {
-		sessions[i].testAuthenticate(ctx, t, conn, replayHostChallenge(hostChallenge, options...)...)
+		testAuthenticate(ctx, t, conn, &sessions[i], replayHostChallenge(hostChallenge, options...)...)
 	}
 
 	if expect >= 0 && expect != len(hostChallenges) {
@@ -168,7 +168,7 @@ func TestSessionUnauthenticatedSend(t *testing.T) {
 		t.Errorf("expected %v, got %v", ErrNotAuthenticated, err)
 	}
 
-	session.testAuthenticate(ctx, t, conn, options...)
+	testAuthenticate(ctx, t, conn, &session, options...)
 	testSendPing(ctx, t, conn, &session)
 	testSessionClose(ctx, t, conn, &session)
 }
@@ -276,7 +276,7 @@ func TestSessionFiveDeviceInfos(t *testing.T) {
 
 	checkDeviceInfo(false)
 
-	session.testAuthenticate(ctx, t, conn, replayHostChallenge(hostChallenge)...)
+	testAuthenticate(ctx, t, conn, &session, replayHostChallenge(hostChallenge)...)
 
 	for i := 0; i < 5; i++ {
 		checkDeviceInfo(true)
@@ -414,7 +414,7 @@ func TestSessionRekey(t *testing.T) {
 	t.Run("reauthenticate", func(t *testing.T) {
 		conn := loadReplayConnector(t, "session-open-close.log")
 		hostChallenge := conn.findHostChallenge(t)
-		session.testAuthenticate(ctx, t, conn, replayHostChallenge(hostChallenge)...)
+		testAuthenticate(ctx, t, conn, session, replayHostChallenge(hostChallenge)...)
 
 		t.Log("ping and close should succeed on new session authentication")
 		testSendPing(ctx, t, conn, session)
