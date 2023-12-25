@@ -347,16 +347,6 @@ func TestLoadKeyPairErrors(t *testing.T) {
 		checkNoKey(t, &key, err)
 	})
 
-	// TODO: remove once the Ping in Session.LoadKeyPair goes away.
-	t.Run("extraneous echo fails", func(t *testing.T) {
-		ctx, conn, session := loadSessionResponses(t,
-			makeSessionResponse(yubihsm.CommandListObjects, 0x12, 0x34, uint8(yubihsm.TypeAsymmetricKey), 0),
-			makeSessionResponse(yubihsm.CommandEcho, 0xaa),
-		)
-		key, err := session.LoadKeyPair(ctx, conn, "echo-fails")
-		checkNoKey(t, &key, err)
-	})
-
 	t.Run("get key fails", func(t *testing.T) {
 		ctx, conn, session := loadSessionResponses(t,
 			makeSessionResponse(yubihsm.CommandListObjects, 0x12, 0x34, uint8(yubihsm.TypeAsymmetricKey), 0),

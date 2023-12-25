@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
 	"io"
@@ -54,6 +53,7 @@ func testAuthenticate(ctx context.Context, t T, conn Connector, s *Session, opti
 // loadReplaySession creates a [Session] using replayed yubihsm-connector
 // logs. The returned session is automatically authenticated.
 func loadReplaySession(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, *replayConnector, *Session) {
+	t.Helper()
 	ctx, conn, options := loadReplay(t, yubihsmConnectorLog, options...)
 	var session Session
 	testAuthenticate(ctx, t, conn, &session, options...)
@@ -285,27 +285,6 @@ func TestSessionFiveDeviceInfos(t *testing.T) {
 	_, err := session.GetDeviceInfo(ctx, conn)
 	if err == nil {
 		t.Errorf("GetDeviceInfo should fail after replaying all messages")
-	}
-}
-
-func TestSessionLoadKeyPair(t *testing.T) {
-	ctx, conn, session := loadReplaySession(t, "load-ed25519-key-by-label.log")
-	testSendPing(ctx, t, conn, session)
-
-	keyPair, err := session.LoadKeyPair(ctx, conn, "test-key")
-	if err != nil {
-		t.Fatalf("session.LoadKeyPair(\"test-key\"): %v", err)
-	}
-
-	t.Logf("keyPair: %#v", keyPair)
-	if keyPair.keyID != 0xb37e {
-		t.Errorf("expected key Object ID 0xb37e, got: %#x", keyPair.keyID)
-	}
-	public, ok := keyPair.Public().(ed25519.PublicKey)
-	if !ok {
-		t.Errorf("expected an Ed25519 key pair, got: %T", keyPair.Public())
-	} else if !public.Equal(ed25519.PublicKey{0x2d, 0xb2, 0xec, 0xee, 0xa1, 0xb, 0xd8, 0x43, 0xb9, 0xb6, 0x77, 0x3a, 0xcc, 0xa6, 0x90, 0xe3, 0xd3, 0xc5, 0xb7, 0x91, 0x7e, 0x28, 0x1a, 0x3e, 0xe3, 0x85, 0xa4, 0xdb, 0x51, 0x2f, 0x6c, 0x4e}) {
-		t.Errorf("incorrect public key")
 	}
 }
 

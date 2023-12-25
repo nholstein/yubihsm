@@ -385,11 +385,6 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 		return KeyPair{}, fmt.Errorf("HSM error: found %d asymmetric-keys labeled %q", len(rsp), label)
 	}
 
-	err = s.Ping(ctx, conn, 0xff)
-	if err != nil {
-		return KeyPair{}, fmt.Errorf("echo: %w", err)
-	}
-
 	keyID := rsp[0].Object
 	public, err := s.GetPublicKey(ctx, conn, keyID)
 	if err != nil {
