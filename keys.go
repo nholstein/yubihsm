@@ -41,13 +41,12 @@ func (k *KeyPair) Public() PublicKey {
 //
 // [Effective Capabilities]: https://developers.yubico.com/YubiHSM2/Concepts/Effective_Capabilities.html
 func (k *KeyPair) Sign(ctx context.Context, conn Connector, session *Session, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	var cmd yubihsm.Command
 	switch pub := k.publicKey.(type) {
 	case *ecdsa.PublicKey:
-		cmd = &yubihsm.SignECDSACommand{
+		return k.sign(ctx, conn, session, &yubihsm.SignECDSACommand{
 			KeyID:  k.keyID,
 			Digest: digest,
-		}
+		})
 
 	case ed25519.PublicKey:
 		// opts should be [crypto.Hash(0)], but be flexible and
@@ -55,58 +54,63 @@ func (k *KeyPair) Sign(ctx context.Context, conn Connector, session *Session, di
 		if opts != nil && opts.HashFunc() == crypto.SHA512 {
 			return nil, errors.New("Ed25519ph is not supported by the YubiHSM2")
 		}
-		cmd = &yubihsm.SignEdDSACommand{
+		return k.sign(ctx, conn, session, &yubihsm.SignEdDSACommand{
 			KeyID:   k.keyID,
 			Message: digest,
-		}
+		})
 
 	case *rsa.PublicKey:
 		pss, ok := opts.(*rsa.PSSOptions)
 		if ok {
-			// from Go crypto/rsa/pss.go
-			hash := pss.Hash
-			saltLen := pss.SaltLength
-			switch saltLen {
-			case rsa.PSSSaltLengthAuto:
-				saltLen = (pub.N.BitLen()-1+7)/8 - 2 - hash.Size()
-				if saltLen < 0 {
-					return nil, rsa.ErrMessageTooLong
-				}
-				saltLen = hash.Size()
-			case rsa.PSSSaltLengthEqualsHash:
-				saltLen = hash.Size()
-			default:
-				// If we get here saltLength is either > 0 or < -1, in the
-				// latter case we fail out.
-				if saltLen <= 0 {
-					return nil, errors.New("crypto/rsa: PSSOptions.SaltLength cannot be negative")
-				}
+			hash, saltLen, err := pssOptions(pub, pss)
+			if err != nil {
+				return nil, err
 			}
-
-			cmd = &yubihsm.SignPSSCommand{
+			return k.sign(ctx, conn, session, &yubihsm.SignPSSCommand{
 				KeyID:   k.keyID,
 				MGF1:    hash,
 				SaltLen: uint16(saltLen),
 				Digest:  digest,
-			}
+			})
 		} else {
-			cmd = &yubihsm.SignPKCS1v15Command{
+			return k.sign(ctx, conn, session, &yubihsm.SignPKCS1v15Command{
 				KeyID:  k.keyID,
 				Digest: digest,
-			}
+			})
 		}
 
 	default:
 		panic("unimplemented signer")
 	}
+}
 
+func (k *KeyPair) sign(ctx context.Context, conn Connector, session *Session, cmd yubihsm.Command) ([]byte, error) {
 	var rsp yubihsm.SignResponse
 	err := session.sendCommand(ctx, conn, cmd, &rsp)
-	if err != nil {
-		return nil, err
-	}
+	return rsp, err
+}
 
-	return rsp, nil
+// pssOptions is copied from Go crypto/rsa/pss.go
+func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, error) {
+	hash := pss.Hash
+	saltLen := pss.SaltLength
+	switch saltLen {
+	case rsa.PSSSaltLengthAuto:
+		saltLen = (pub.N.BitLen()-1+7)/8 - 2 - hash.Size()
+		if saltLen < 0 {
+			return 0, 0, rsa.ErrMessageTooLong
+		}
+		return hash, hash.Size(), nil
+	case rsa.PSSSaltLengthEqualsHash:
+		return hash, hash.Size(), nil
+	default:
+		// If we get here saltLength is either > 0 or < -1, in the
+		// latter case we fail out.
+		if saltLen <= 0 || saltLen >= 1<<16 {
+			return 0, 0, errors.New("crypto/rsa: PSSOptions.SaltLength cannot be negative or greater than 65535")
+		}
+		return hash, saltLen, nil
+	}
 }
 
 // AsCryptoSigner wraps the keypair into a type which can be used with
@@ -149,55 +153,53 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 		return nil, errors.New("unsupported crypto.Decrypter")
 	}
 
-	var (
-		sessionKey []byte
-		cmd        yubihsm.Command
-	)
 	switch o := opts.(type) {
 	case nil:
-		cmd = &yubihsm.DecryptPKCS1v15Command{
+		return k.decrypt(ctx, conn, session, &yubihsm.DecryptPKCS1v15Command{
 			KeyID:      k.keyID,
 			CipherText: ciphertext,
-		}
+		})
 
 	case *rsa.PKCS1v15DecryptOptions:
-		if o.SessionKeyLen > 0 {
-			sessionKey = make([]byte, o.SessionKeyLen)
-			_, err := io.ReadFull(rand.Reader, sessionKey)
-			if err != nil {
-				return nil, err
-			}
-		}
-		cmd = &yubihsm.DecryptPKCS1v15Command{
+		rsp, err := k.decrypt(ctx, conn, session, &yubihsm.DecryptPKCS1v15Command{
 			KeyID:      k.keyID,
 			CipherText: ciphertext,
+		})
+		var e yubihsm.Error
+		if o.SessionKeyLen > 0 && errors.As(err, &e) {
+			// TODO: check for specific error?
+			return readRand(o.SessionKeyLen)
 		}
+		return rsp, err
 
 	case *rsa.OAEPOptions:
-		cmd = &yubihsm.DecryptOAEPCommand{
+		return k.decrypt(ctx, conn, session, &yubihsm.DecryptOAEPCommand{
 			KeyID:      k.keyID,
 			MGF1:       orDefault(o.MGFHash, o.Hash),
 			LabelHash:  o.Hash,
 			CipherText: ciphertext,
 			Label:      o.Label,
-		}
+		})
 
 	default:
 		return nil, errors.New("unsupported RSA decryption algorithm")
 	}
+}
 
+func (k *KeyPair) decrypt(ctx context.Context, conn Connector, session *Session, cmd yubihsm.Command) ([]byte, error) {
 	var rsp yubihsm.DecryptResponse
 	err := session.sendCommand(ctx, conn, cmd, &rsp)
+	return rsp, err
+}
+
+// readRand returns a random byte slice from [crypto/rand.Reader].
+func readRand(n int) ([]byte, error) {
+	buf := make([]byte, n)
+	_, err := rand.Read(buf)
 	if err != nil {
-		var e yubihsm.Error
-		if sessionKey != nil && errors.As(err, &e) {
-			// TODO: check for specific error?
-			return sessionKey, nil
-		}
 		return nil, err
 	}
-
-	return rsp, nil
+	return buf, nil
 }
 
 // AsCryptoDecrypter wraps the keypair into a type which can be used with
