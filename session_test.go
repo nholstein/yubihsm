@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,6 +149,28 @@ func TestSessionAuthenticationFails(t *testing.T) {
 			t.Logf("authentication failed as desired with error: %v", err)
 		}
 	}
+
+	var session Session
+	err := session.Authenticate(context.Background(), nil, func(c *authConfig) {
+		c.rand = strings.NewReader("short")
+	})
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("expected short read: %v", err)
+	}
+}
+
+func TestSessionUnauthenticatedSend(t *testing.T) {
+	ctx, conn, options := loadReplay(t, "session-open-close.log")
+	var session Session
+
+	err := session.Ping(ctx, conn, 0xff)
+	if !errors.Is(err, ErrNotAuthenticated) {
+		t.Errorf("expected %v, got %v", ErrNotAuthenticated, err)
+	}
+
+	session.testAuthenticate(ctx, t, conn, options...)
+	testSendPing(ctx, t, conn, &session)
+	testSessionClose(ctx, t, conn, &session)
 }
 
 func TestSessionConcurrent(t *testing.T) {

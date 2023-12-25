@@ -121,8 +121,8 @@ func WithAuthenticationKeyID(keyID ObjectID) AuthenticationOption {
 //
 // The zero Session is valid to use.
 //
-// 	var session Session
-// 	err := session.Authenticate(ctx, conn)
+//	var session Session
+//	err := session.Authenticate(ctx, conn)
 //
 // [YubiHSM2 Session]: https://developers.yubico.com/YubiHSM2/Concepts/Session.html
 type Session struct {
@@ -341,7 +341,7 @@ func (s *Session) Ping(ctx context.Context, conn Connector, data ...byte) error 
 	return nil
 }
 
-// GetPublicKey retrieves the public half of an asymmetric keypair on
+// GetPublicKey retrieves the public half of an asymmetric keypair in
 // the HSM.
 //
 // The return public key will be one of an [*ecdsa.PublicKey],
@@ -358,7 +358,7 @@ func (s *Session) GetPublicKey(ctx context.Context, conn Connector, keyID Object
 	return rsp.PublicKey, nil
 }
 
-// LoadKeyPair looks up the asymmetric keypair on the HSM using the
+// LoadKeyPair looks up the asymmetric keypair in the HSM using the
 // provided [label] and returns a [KeyPair] which can be used to sign
 // messages or decrypt ciphertext.
 //
@@ -382,7 +382,7 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 	} else if len(rsp) > 1 {
 		// This should be impossible, keys are identified via
 		// the (type, ID) pair.
-		return KeyPair{}, fmt.Errorf("HSM error: founc %d asymmetric-keys labeled %q", len(rsp), label)
+		return KeyPair{}, fmt.Errorf("HSM error: found %d asymmetric-keys labeled %q", len(rsp), label)
 	}
 
 	err = s.Ping(ctx, conn, 0xff)
