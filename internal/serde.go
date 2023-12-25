@@ -22,10 +22,6 @@ func Append16[V ~uint16 | ~int16 | ~int](b []byte, v V) []byte {
 	return binary.BigEndian.AppendUint16(b, uint16(v))
 }
 
-//func Append32[V ~uint32 | ~int32 | ~int](b []byte, v V) []byte {
-//	return binary.BigEndian.AppendUint32(b, uint32(v))
-//}
-
 func Put8[V ~uint8 | ~int8 | ~int](b []byte, v V) {
 	b[0] = byte(v)
 }

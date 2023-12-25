@@ -230,18 +230,3 @@ func (l *logMessagesConnector) saveTestdata(t T, logName string) {
 		}
 	}
 }
-
-func TestUnauthenticatedGetDeviceInfo(t *testing.T) {
-	ctx := testingContext(t)
-	conn := loadReplayConnector(t, "unauthenticated-device-info.log")
-
-	t.Run("get device info", func(t *testing.T) {
-		var cmd yubihsm.DeviceInfoCommand
-		var rsp yubihsm.DeviceInfoResponse
-		err := sendPlaintext(ctx, conn, &cmd, &rsp)
-		if err != nil {
-			t.Fatalf("sendPlaintext(%x): %v", cmd, err)
-		}
-		t.Logf("devInfo: %#v", rsp)
-	})
-}

@@ -122,22 +122,6 @@ func TestKeyEd25519Sign(t *testing.T) {
 	})
 }
 
-func httpSession(t *testing.T, log, label string) (context.Context, Connector, *Session, KeyPair) {
-	ctx := testingContext(t)
-	conn := logMessagesConnector{T: t}
-	var session Session
-	session.testAuthenticate(ctx, t, &conn)
-
-	private, err := session.LoadKeyPair(ctx, &conn, label)
-	if err != nil {
-		t.Helper()
-		t.Fatalf("session.LoadKeyPair(%q): %v", label, err)
-	}
-
-	conn.cleanup(t, log)
-	return ctx, &conn, &session, private
-}
-
 func testKeyRSA(t *testing.T, bits int) {
 	message := []byte("test plaintext")
 	hashed := sha256.Sum256([]byte("test RSA message"))
