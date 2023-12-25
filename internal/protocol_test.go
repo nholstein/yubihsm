@@ -41,3 +41,12 @@ func TestStrings(t *testing.T) {
 		t.Logf("%v", TypeID(i))
 	}
 }
+
+func TestErrors(t *testing.T) {
+	if errSuccess != 0 {
+		t.Errorf("success != 0")
+	}
+	if errUnableToOverwrite != 0x11 {
+		t.Errorf("errUnableToOverwrite != 0x11: %d", errUnableToOverwrite)
+	}
+}

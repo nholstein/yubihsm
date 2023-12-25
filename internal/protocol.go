@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-//go:generate go run golang.org/x/tools/cmd/stringer -output=protocol_string.go -type=AlgorithmID,CommandID,TypeID
+//go:generate go run golang.org/x/tools/cmd/stringer -linecomment -output=protocol_string.go -type=AlgorithmID,CommandID,Error,TypeID
 
 // InvalidLengthError is the error returned when a received YubiHSM2
 // message has an invalid length.
@@ -186,46 +186,38 @@ const (
 // [YubiHSM Errors]: https://developers.yubico.com/YubiHSM2/Concepts/Errors.html
 type Error uint8
 
+const (
+	errSuccess                Error = iota // success
+	errUnknownCommand                      // unknown command
+	errMalformedCommand                    // malformed data for the command
+	errSessionExpiredOrDNE                 // the session has expired or does not exist
+	errWrongAuthenticationKey              // wrong authentication key
+	errNoMoreSessions                      // no more available sessions
+	errSessionSetupFailed                  // session setup failed
+	errStoriageFull                        // storage full
+	errWrongLength                         // wrong data length for the command
+	errPermisions                          // insufficient permissions for the command
+	errAuditLogFull                        // the log is full and force audit is enabled
+	errNoMatchingObject                    // no object found matching given ID and Type
+	errInvalidID                           // invalid ID
+	_                                      // 0x0D undocumented
+	errSSHConstraintsFailed                // constraints in SSH Template not met
+	errOTPDecryptionFailed                 // OTP decryption failed
+	errDemoPowerCycle                      // demo device must be power-cycled
+	errUnableToOverwrite                   // unable to overwrite object
+)
+
 // Error implements [error.Error].
 func (e Error) Error() string {
-	switch e {
-	case 0x00:
-		return "success"
-	case 0x01:
-		return "unknown command"
-	case 0x02:
-		return "malformed data for the command"
-	case 0x03:
-		return "the session has expired or does not exist"
-	case 0x04:
-		return "wrong authentication key"
-	case 0x05:
-		return "no more available sessions"
-	case 0x06:
-		return "session setup failed"
-	case 0x07:
-		return "storage full"
-	case 0x08:
-		return "wrong data length for the command"
-	case 0x09:
-		return "insufficient permissions for the command"
-	case 0x0a:
-		return "the log is full and force audit is enabled"
-	case 0x0b:
-		return "no object found matching given ID and Type"
-	case 0x0c:
-		return "invalid ID"
-	case 0x0e:
-		return "constraints in SSH Template not met"
-	case 0x0f:
-		return "OTP decryption failed"
-	case 0x10:
-		return "demo device must be power-cycled"
-	case 0x11:
-		return "unable to overwrite object"
-	default:
-		return fmt.Sprintf("yubihsm error(%#x)", int(e))
+	return e.String()
+}
+
+func parseError(buf []byte) error {
+	var e Error
+	if len(buf) > HeaderLength {
+		e = Error(buf[HeaderLength])
 	}
+	return fmt.Errorf("received an error response: (%d) %w", e, e)
 }
 
 // Command is a serializable message sent to the YubiHSM2.
