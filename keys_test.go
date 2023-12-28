@@ -90,7 +90,7 @@ func TestKeyEd25519Sign(t *testing.T) {
 			}
 		})
 
-		signature, err := private.Sign(ctx, conn, session, message, nil)
+		signature, err := private.Sign(ctx, conn, session, message, crypto.Hash(0))
 		if err != nil {
 			t.Errorf("private.Sign(): %v", err)
 		}
@@ -105,7 +105,7 @@ func TestKeyEd25519Sign(t *testing.T) {
 	t.Run("crypto", func(t *testing.T) {
 		ctx, conn, session, private := loadReplayKey(t, "sign-ed25519.log", "test-key")
 		signer := private.AsCryptoSigner(ctx, conn, session)
-		signature, err := signer.Sign(nil, message, nil)
+		signature, err := signer.Sign(nil, message, crypto.Hash(0))
 		if err != nil {
 			t.Errorf("private.Sign(): %v", err)
 		}
@@ -123,7 +123,7 @@ func TestKeyEd25519Sign(t *testing.T) {
 		if err == nil {
 			t.Errorf("decrypting using a Ed25519 key should fail")
 		}
-		_, _ = private.Sign(ctx, conn, session, message, nil)
+		_, _ = private.Sign(ctx, conn, session, message, crypto.Hash(0))
 	})
 }
 
@@ -381,12 +381,26 @@ func TestKeyPairCoverage(t *testing.T) {
 	t.Run("sign error", func(t *testing.T) {
 		message := []byte("test Ed25519 message")
 		ctx, conn, session, private := loadReplayKey(t, "sign-ed25519.log", "test-key")
-		_, err := private.Sign(ctx, conn, session, message, nil)
+
+		signature, err := private.Sign(ctx, conn, session, message, crypto.MD5)
+		if signature != nil || err == nil {
+			t.Fatalf("private.Sign(): should reject unsupported digest")
+		}
+
+		signature, err = private.Sign(ctx, conn, session, message, &ed25519.Options{
+			Context: "Ed25519ctx is not supported",
+		})
+		if signature != nil || err == nil {
+			t.Fatalf("private.Sign(): should reject Ed25519ctx")
+		}
+
+		t.Log("need to generate a valid signature to replay sign-eddsa command")
+		_, err = private.Sign(ctx, conn, session, message, crypto.Hash(0))
 		if err != nil {
 			t.Fatalf("private.Sign(): %v", err)
 		}
 
-		signature, err := private.Sign(ctx, conn, session, message, nil)
+		signature, err = private.Sign(ctx, conn, session, message, crypto.Hash(0))
 		if signature != nil || err == nil {
 			t.Errorf("private.Sign() should have failed on an emptied message log")
 		}
@@ -395,7 +409,7 @@ func TestKeyPairCoverage(t *testing.T) {
 	t.Run("load error", func(t *testing.T) {
 		message := []byte("test Ed25519 message")
 		ctx, conn, session, private := loadReplayKey(t, "sign-ed25519.log", "test-key")
-		_, err := private.Sign(ctx, conn, session, message, nil)
+		_, err := private.Sign(ctx, conn, session, message, crypto.Hash(0))
 		if err != nil {
 			t.Fatalf("private.Sign(): %v", err)
 		}

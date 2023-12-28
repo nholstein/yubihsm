@@ -34,7 +34,10 @@ func (k *KeyPair) Public() PublicKey {
 //
 // This mimics the semantics of [crypto.Signer.Sign], in particular the
 // value of [opt]. See the details of [rsa.PrivateKey.Sign] and
-// [ecdsa.PrivateKey.Sign] for additional details.
+// [ecdsa.PrivateKey.Sign] for additional details. Both PKCS1v1.5 and
+// PSS signatures are supported with RSA keys. Only basic Ed25519
+// signatures are supported; the YubiHSM2 supports neither the Ed25519ph
+// or Ed25519ctx variants.
 //
 // This function will fail if the HSM key type is incompatible with
 // decryption or if the [Effective Capabilities] are insufficient.
@@ -49,39 +52,63 @@ func (k *KeyPair) Sign(ctx context.Context, conn Connector, session *Session, di
 		})
 
 	case ed25519.PublicKey:
-		// opts should be [crypto.Hash(0)], but be flexible and
-		// only check to ensure Ed25519ph wasn't specified.
-		if opts != nil && opts.HashFunc() == crypto.SHA512 {
-			return nil, errors.New("Ed25519ph is not supported by the YubiHSM2")
-		}
+		return k.signEd25519(ctx, conn, session, digest, opts)
+
+	case *rsa.PublicKey:
+		return k.signRSA(ctx, conn, session, pub, digest, opts)
+
+	default:
+		panic("unimplemented signer")
+	}
+}
+
+// As of Go 1.21.4. the documentation for [ed225519.PrivateKey.Sign] is
+// incomplete, as it does not mention Ed25519ctx. This uses the logic
+// actually implemented in the signing function.
+func (k *KeyPair) signEd25519(ctx context.Context, conn Connector, session *Session, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	hash := opts.HashFunc()
+	context := ""
+	if opts, ok := opts.(*ed25519.Options); ok {
+		context = opts.Context
+	}
+
+	switch {
+	case hash == crypto.SHA512: // Ed25519ph
+		return nil, errors.New("Ed25519ph is not supported by the YubiHSM2")
+
+	case hash == crypto.Hash(0) && context != "": // Ed25519ctx
+		return nil, errors.New("Ed25519ctx is not supported by the YubiHSM2")
+
+	case hash == crypto.Hash(0): // Ed25519
 		return k.sign(ctx, conn, session, &yubihsm.SignEdDSACommand{
 			KeyID:   k.keyID,
 			Message: digest,
 		})
 
-	case *rsa.PublicKey:
-		pss, ok := opts.(*rsa.PSSOptions)
-		if ok {
-			hash, saltLen, err := pssOptions(pub, pss)
-			if err != nil {
-				return nil, err
-			}
-			return k.sign(ctx, conn, session, &yubihsm.SignPSSCommand{
-				KeyID:   k.keyID,
-				MGF1:    hash,
-				SaltLen: uint16(saltLen),
-				Digest:  digest,
-			})
-		} else {
-			return k.sign(ctx, conn, session, &yubihsm.SignPKCS1v15Command{
-				KeyID:  k.keyID,
-				Digest: digest,
-			})
-		}
-
 	default:
-		panic("unimplemented signer")
+		return nil, errors.New("ed25519: expected opts.HashFunc() zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
 	}
+}
+
+func (k *KeyPair) signRSA(ctx context.Context, conn Connector, session *Session, pub *rsa.PublicKey, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	pss, ok := opts.(*rsa.PSSOptions)
+	if !ok {
+		return k.sign(ctx, conn, session, &yubihsm.SignPKCS1v15Command{
+			KeyID:  k.keyID,
+			Digest: digest,
+		})
+	}
+
+	hash, saltLen, err := pssOptions(pub, pss)
+	if err != nil {
+		return nil, err
+	}
+	return k.sign(ctx, conn, session, &yubihsm.SignPSSCommand{
+		KeyID:   k.keyID,
+		MGF1:    hash,
+		SaltLen: uint16(saltLen),
+		Digest:  digest,
+	})
 }
 
 func (k *KeyPair) sign(ctx context.Context, conn Connector, session *Session, cmd yubihsm.Command) ([]byte, error) {
