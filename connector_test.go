@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -175,7 +176,7 @@ func (r *replayConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, 
 		r.Logf("replay:")
 		r.Logf("    -> %x", cmd)
 		if len(r.messages) == 0 {
-			return nil, fmt.Errorf("reached end of logged messages")
+			return nil, errors.New("reached end of logged messages")
 		} else if !bytes.Equal(cmd, r.messages[0][0]) {
 			return nil, fmt.Errorf("mismatch:\n   (%d) %x\n   (%d) %x", len(cmd), cmd, len(r.messages[0][0]), r.messages[0][0])
 		}

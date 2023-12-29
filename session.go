@@ -198,7 +198,7 @@ func (s *Session) authenticateSession(encKey, macKey SessionKey, hostChallenge y
 
 	cardCryptogram := deriveCryptogram(0, macKey, hostChallenge, create.CardChallenge)
 	if subtle.ConstantTimeCompare(cardCryptogram[:], create.CardCryptogram[:]) != 1 {
-		return nil, fmt.Errorf("card cryptogram MAC incorrect")
+		return nil, errors.New("card cryptogram MAC incorrect")
 	}
 
 	s.encryptionKey = encKey

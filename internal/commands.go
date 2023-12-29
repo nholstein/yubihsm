@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"math/big"
 )
@@ -212,7 +213,7 @@ func (g *GetPublicKeyResponse) Parse(b []byte) error {
 	switch a {
 	case AlgorithmED25519:
 		if len(b) != ed25519.PublicKeySize {
-			return fmt.Errorf("invalid Ed25519 public key")
+			return errors.New("invalid Ed25519 public key")
 		}
 		g.PublicKey = ed25519.PublicKey(b)
 		return nil
@@ -240,7 +241,7 @@ func (g *GetPublicKeyResponse) Parse(b []byte) error {
 
 func (g *GetPublicKeyResponse) parsePublicKeyRSA(b []byte, bytes int) error {
 	if len(b) != bytes {
-		return fmt.Errorf("invalid RSA public key length")
+		return errors.New("invalid RSA public key length")
 	}
 
 	var n big.Int
@@ -258,7 +259,7 @@ func (g *GetPublicKeyResponse) parsePublicKeyECDSA(b []byte, curve elliptic.Curv
 	x.SetBytes(b[:len(b)/2])
 	y.SetBytes(b[len(b)/2:])
 	if !curve.IsOnCurve(&x, &y) {
-		return fmt.Errorf("invalid ECDSA public key")
+		return errors.New("invalid ECDSA public key")
 	}
 
 	g.PublicKey = &ecdsa.PublicKey{
@@ -337,7 +338,7 @@ func (l *ListObjectsResponse) Parse(b []byte) error {
 	}
 
 	if len(b) != 0 {
-		return fmt.Errorf("trailing bytes in list-objects response")
+		return errors.New("trailing bytes in list-objects response")
 	}
 	return nil
 }

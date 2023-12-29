@@ -3,6 +3,7 @@
 package yubihsm
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -234,12 +235,12 @@ type Response interface {
 
 func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 	if len(buf) < HeaderLength {
-		return fmt.Errorf("response message too short")
+		return errors.New("response message too short")
 	}
 
 	rspCmdID, rspLen := ParseHeader(buf)
 	if len(buf)-HeaderLength < rspLen {
-		return fmt.Errorf("invalid response message length")
+		return errors.New("invalid response message length")
 	} else if rspCmdID == commandError {
 		return parseError(buf)
 	} else if rspCmdID != CommandResponse|cmdID {
