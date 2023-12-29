@@ -20,10 +20,10 @@ import (
 // T is either a [testing.T] or [testing.Fuzz].
 type T interface {
 	Helper()
-	Errorf(string, ...any)
-	Fatalf(string, ...any)
-	Logf(string, ...any)
-	Cleanup(func())
+	Errorf(msg string, v ...any)
+	Fatalf(msg string, v ...any)
+	Logf(msg string, v ...any)
+	Cleanup(fn func())
 }
 
 // testingContext creates a context tied to the deadline of the test.
@@ -129,12 +129,15 @@ func testSessionClose(ctx context.Context, t *testing.T, conn Connector, session
 }
 
 func TestSessionAuthenticateSession(t *testing.T) {
+	t.Parallel()
 	ctx, conn, session := loadReplaySession(t, "session-open-close.log")
 	testSendPing(ctx, t, conn, session)
 	testSessionClose(ctx, t, conn, session)
 }
 
 func TestSessionAuthenticationFails(t *testing.T) {
+	t.Parallel()
+
 	for log, reason := range map[string]string{
 		"session-authenticate-session-fails.log":  "card responds with error",
 		"session-bad-create-session-response.log": "authentication with corrupted packets",
@@ -160,6 +163,7 @@ func TestSessionAuthenticationFails(t *testing.T) {
 }
 
 func TestSessionUnauthenticatedSend(t *testing.T) {
+	t.Parallel()
 	ctx, conn, options := loadReplay(t, "session-open-close.log")
 	var session Session
 
@@ -174,6 +178,7 @@ func TestSessionUnauthenticatedSend(t *testing.T) {
 }
 
 func TestSessionConcurrent(t *testing.T) {
+	t.Parallel()
 	ctx, conn, sessions := loadMultiReplay(t, "session-concurrent.log", 16)
 
 	t.Logf("generate a slew of traffic")
@@ -204,6 +209,7 @@ func TestSessionConcurrent(t *testing.T) {
 }
 
 func TestSessionBadMAC(t *testing.T) {
+	t.Parallel()
 	ctx, conn, session := loadReplaySession(t, "session-bad-mac.log")
 	err := session.Ping(ctx, conn, 0xff)
 	if err == nil {
@@ -212,6 +218,7 @@ func TestSessionBadMAC(t *testing.T) {
 }
 
 func TestSessionCustomKeyPassword(t *testing.T) {
+	t.Parallel()
 	foobar := pbkdf2.Key([]byte("foobar"), []byte("Yubico"), 10_000, 32, sha256.New)
 	var encryptionKey, macKey SessionKey
 	copy(macKey[:], foobar[copy(encryptionKey[:], foobar):])
@@ -228,6 +235,7 @@ func TestSessionCustomKeyPassword(t *testing.T) {
 }
 
 func TestSessionGetEd25519PublicKey(t *testing.T) {
+	t.Parallel()
 	ctx, conn, session := loadReplaySession(t, "get-ed25519-pubkey.log")
 	testSendPing(ctx, t, conn, session)
 
@@ -240,6 +248,7 @@ func TestSessionGetEd25519PublicKey(t *testing.T) {
 }
 
 func TestSessionGetP256PublicKey(t *testing.T) {
+	t.Parallel()
 	ctx, conn, session := loadReplaySession(t, "get-p256-pubkey.log")
 	testSendPing(ctx, t, conn, session)
 
@@ -252,7 +261,7 @@ func TestSessionGetP256PublicKey(t *testing.T) {
 }
 
 func TestSessionFiveDeviceInfos(t *testing.T) {
-	t.Helper()
+	t.Parallel()
 	ctx := testingContext(t)
 	conn := loadReplayConnector(t, "five-device-infos.log")
 	hostChallenge := conn.findHostChallenge(t)
@@ -358,6 +367,7 @@ func loadSessionResponse(t T, cmd yubihsm.CommandID, msg ...byte) (context.Conte
 }
 
 func TestBadPongData(t *testing.T) {
+	t.Parallel()
 	ctx, conn, session := loadSessionResponse(t, yubihsm.CommandEcho, 0x0)
 	err := session.Ping(ctx, conn, 0xaa)
 	if err == nil || err.Error() != "pong response incorrect" {
@@ -366,6 +376,7 @@ func TestBadPongData(t *testing.T) {
 }
 
 func TestSessionRekey(t *testing.T) {
+	t.Parallel()
 	ctx, conn, session := loadSessionResponse(t, yubihsm.CommandEcho, 0xaa)
 	t.Logf("session authenticated; this includes one encrypted & authenticated AuthenticateSession command")
 
@@ -413,6 +424,7 @@ func FuzzSessionResponseParsing(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, in []byte) {
+		t.Parallel()
 		session := authenticated
 		var iv [aes.BlockSize]byte
 		yubihsm.Put32(iv[len(iv)-4:], session.messageCounter)
@@ -425,20 +437,20 @@ func FuzzSessionResponseParsing(f *testing.F) {
 
 var responseCorpus = [][]byte{
 	nil,
-	[]byte{0x85, 0, 1, 0},
-	[]byte{0x85, 0, 2, 0, 1},
-	[]byte{0x85, 0, 3, 0, 1, 2},
-	[]byte{0x85, 0, 4, 0, 1, 2, 3},
-	[]byte{0x85, 0, 5, 0, 1, 2, 3, 4},
-	[]byte{0x85, 0, 6, 0, 1, 2, 3, 4, 5},
-	[]byte{0x85, 0, 7, 0, 1, 2, 3, 4, 5, 6},
-	[]byte{0x85, 0, 8, 0, 1, 2, 3, 4, 5, 6, 7},
-	[]byte{0x85, 0, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8},
-	[]byte{0x85, 0, 10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
-	[]byte{0x85, 0, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-	[]byte{0x85, 0, 12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
-	[]byte{0x85, 0, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-	[]byte{0x85, 0, 14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
-	[]byte{0x85, 0, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-	[]byte{0x85, 0, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+	{0x85, 0, 1, 0},
+	{0x85, 0, 2, 0, 1},
+	{0x85, 0, 3, 0, 1, 2},
+	{0x85, 0, 4, 0, 1, 2, 3},
+	{0x85, 0, 5, 0, 1, 2, 3, 4},
+	{0x85, 0, 6, 0, 1, 2, 3, 4, 5},
+	{0x85, 0, 7, 0, 1, 2, 3, 4, 5, 6},
+	{0x85, 0, 8, 0, 1, 2, 3, 4, 5, 6, 7},
+	{0x85, 0, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8},
+	{0x85, 0, 10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+	{0x85, 0, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+	{0x85, 0, 12, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+	{0x85, 0, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+	{0x85, 0, 14, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+	{0x85, 0, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+	{0x85, 0, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 }

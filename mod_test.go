@@ -26,6 +26,7 @@ func generateDefaultKey() []byte {
 }
 
 func TestGenerateDefaultKey(t *testing.T) {
+	t.Parallel()
 	defaultAuthKey := generateDefaultKey()
 	t.Logf("default key = %x", defaultAuthKey)
 
@@ -34,6 +35,7 @@ func TestGenerateDefaultKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		t.Cleanup(func() {
 			err = out.Close()
 			if err != nil {
@@ -61,5 +63,17 @@ func defaultMACKey() (key SessionKey) {
 		if err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+func TestCheckErr(t *testing.T) {
+	slice, err := checkErr([]byte{1, 2}, fmt.Errorf("error"))
+	if err == nil || slice != nil {
+		t.Errorf("should return (nil, error)")
+	}
+
+	str, err := checkErr("foo", fmt.Errorf("error"))
+	if err == nil || str != "" {
+		t.Errorf("should return (\"\", error)")
 	}
 }

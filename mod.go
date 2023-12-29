@@ -51,8 +51,8 @@
 // support generating the keys, you can use an external tool such as
 // [yubihsm-shell] instead.
 //
-// The returned key object generally conforms the the standard [crypto]
-// key APIs, and can be used wherever a [crypto.Signer] or [crypto.Deriver]
+// The returned key object generally conforms the standard [crypto] key
+// APIs, and can be used wherever a [crypto.Signer] or [crypto.Deriver]
 // is used.
 //
 // ## Supported key algorithms
@@ -87,4 +87,13 @@ func orDefault[V comparable](value, defaultV V) V {
 		return value
 	}
 	return defaultV
+}
+
+// checkErr squelches a return value if an error is given.
+func checkErr[V any](value V, err error) (V, error) {
+	if err != nil {
+		var zero V
+		return zero, err
+	}
+	return value, nil
 }

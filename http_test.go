@@ -22,13 +22,13 @@ func httpServerReplay(t *testing.T, log string, options ...AuthenticationOption)
 		cmd, err := io.ReadAll(req.Body)
 		if err != nil {
 			t.Errorf("read body: %v", err)
-			w.WriteHeader(400)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		rsp, err := conn.SendCommand(req.Context(), cmd)
 		if err != nil {
 			t.Errorf("send command: %v", err)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		_, err = w.Write(rsp)
@@ -45,6 +45,8 @@ func httpServerReplay(t *testing.T, log string, options ...AuthenticationOption)
 }
 
 func TestHTTPConnector(t *testing.T) {
+	t.Parallel()
+
 	ctx, server, options := httpServerReplay(t, "session-open-close.log")
 	conn := NewHTTPConnector(
 		WithHTTPClient(server.Client()),
@@ -64,7 +66,11 @@ func (e *errTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 func TestHTTPConnectorErrors(t *testing.T) {
+	t.Parallel()
+
 	t.Run("bad URL", func(t *testing.T) {
+		t.Parallel()
+
 		ctx := testingContext(t)
 		conn := NewHTTPConnector(WithConnectorURL("http://localhost\n:12345/"))
 		var session Session
@@ -76,7 +82,9 @@ func TestHTTPConnectorErrors(t *testing.T) {
 	})
 
 	t.Run("transport error", func(t *testing.T) {
-		wompWompWaaaah := errors.New("womp womp waaaah")
+		t.Parallel()
+
+		wompWompWaaaah := errors.New("womp woomp waaaah")
 		ctx := testingContext(t)
 		client := http.Client{
 			Transport: &errTransport{wompWompWaaaah},
@@ -91,6 +99,8 @@ func TestHTTPConnectorErrors(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
+		t.Parallel()
+
 		ctx := testingContext(t)
 		server := httptest.NewServer(http.NotFoundHandler())
 		t.Cleanup(server.Close)

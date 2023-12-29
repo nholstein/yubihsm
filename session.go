@@ -24,7 +24,7 @@ const (
 	// The length of the keys used for AES encryption and MACs.
 	sessionKeyLen = 16
 
-	// The length of the MAC field in a message
+	// The length of the MAC field in a message.
 	macLength = 8
 
 	// The maximum number of encrypted messages to send in a session
@@ -33,7 +33,7 @@ const (
 
 	defaultAuthKeyID ObjectID = 1
 
-	// command ID (0x05/0x85), length, session ID
+	// sessionHeaderLength is command ID, length, session ID.
 	sessionHeaderLength = 1 + 2 + 1
 )
 
@@ -42,7 +42,7 @@ const (
 // [YubiHSM2 Object ID]: https://developers.yubico.com/YubiHSM2/Concepts/Object_ID.html
 type ObjectID = yubihsm.ObjectID
 
-// SessionKey is a random key key used to authenticate and encrypt a
+// SessionKey is a random key used to authenticate and encrypt a
 // YubiHSM2 session.
 //
 // These should always be randomly generated.
@@ -145,7 +145,7 @@ func (c *authConfig) createSession() (yubihsm.CreateSessionCommand, error) {
 	return cmd, err
 }
 
-func deriveKey(len, derivationConstant byte, key SessionKey, hostChallenge, deviceChallenge yubihsm.Challenge) (derived SessionKey) {
+func deriveKey(lenDerived, derivationConstant byte, key SessionKey, hostChallenge, deviceChallenge yubihsm.Challenge) (derived SessionKey) {
 	// SCP0 §4.1.5 Data Derivation Scheme
 	fixedInput := [16]byte{
 		// A 12-byte “label” consisting of 11 bytes with value
@@ -155,7 +155,7 @@ func deriveKey(len, derivationConstant byte, key SessionKey, hostChallenge, devi
 		0,
 		// A 2-byte integer “L” specifying the length in bits
 		// of the derived data
-		0, 8 * len,
+		0, 8 * lenDerived,
 		// A 1-byte counter “i” as specified in the KDF
 		1,
 	}
@@ -413,7 +413,7 @@ func (s *Session) calculateCMAC(cmd yubihsm.CommandID, session byte, contents []
 
 	// CMAC produces 16 bytes so hash directly into the returned key.
 	mac.Sum(k[:0])
-	return k
+	return
 }
 
 func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.Command, rsp yubihsm.Response) error {
@@ -481,8 +481,8 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 // Returns the AES block cipher and IV which can be used to decrypt the
 // response.
 func (s *Session) encryptThenMAC(message []byte) (cipher.Block, []byte) {
-	// Create the CBC IV: 16 bytes; 12 zeroes and and 32-bit counter.
-	// The serialized counter is encrypted with the session encryption
+	// Create the CBC IV: 16 bytes; 12 zeroes and 32-bit counter. The
+	// serialized counter is encrypted with the session encryption
 	// key to result in the IV.
 	//
 	// Increment the counter early to ensure an IV is never reused.

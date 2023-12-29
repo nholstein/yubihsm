@@ -30,9 +30,17 @@ type DeviceInfo struct {
 	Trusted bool
 }
 
-// Connector allows sending commands to a YubiHSM2
+// Connector allows sending commands to a YubiHSM2.
+//
+// [command] is a fully serialized [HSM command]. The YubiHSM2 has a
+// maximum command length of 2028 bytes per the documentation of the [Put
+// Opaque] command; therefore a connector must support sending a message
+// this long.
+//
+// [HSM command]: https://developers.yubico.com/YubiHSM2/Commands/
+// [Put Opaque]: https://developers.yubico.com/YubiHSM2/Commands/Put_Opaque.html
 type Connector interface {
-	SendCommand(context.Context, []byte) ([]byte, error)
+	SendCommand(ctx context.Context, command []byte) ([]byte, error)
 }
 
 // HTTPConnector is a [Connector] which provides access to a YubiHSM2
@@ -62,6 +70,7 @@ func NewHTTPConnector(options ...HTTPOption) HTTPConnector {
 	for _, option := range options {
 		option(&conn)
 	}
+
 	return (HTTPConnector)(conn)
 }
 
@@ -104,7 +113,7 @@ func (h *HTTPConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, er
 	}
 	defer func() { _ = rsp.Body.Close() }()
 
-	if rsp.StatusCode/100 != 2 {
+	if rsp.StatusCode < http.StatusOK || rsp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("connector command failed: %s", rsp.Status)
 	}
 

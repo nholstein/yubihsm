@@ -123,7 +123,7 @@ func loadReplayConnectorReader(t T, yubihsmConnectorLog io.Reader, name string) 
 	return &r
 }
 
-func parseUsbEndpointLine(lines *bufio.Scanner) (direction string, message []byte) {
+func parseUsbEndpointLine(lines *bufio.Scanner) (string, []byte) {
 	for lines.Scan() {
 		matches := matchConnectorLogLine.FindSubmatch(lines.Bytes())
 		if len(matches) == 0 {

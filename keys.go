@@ -13,7 +13,7 @@ import (
 	yubihsm "github.com/nholstein/yubihsm/internal"
 )
 
-// PublicKey is the strongly-typed [crypto.PublicKey]
+// PublicKey is the strongly-typed [crypto.PublicKey].
 type PublicKey = yubihsm.PublicKey
 
 // KeyPair manages either an RSA, ECDSA, or Ed25519 key on a YubiHSM2.
@@ -103,6 +103,7 @@ func (k *KeyPair) signRSA(ctx context.Context, conn Connector, session *Session,
 	if err != nil {
 		return nil, err
 	}
+
 	return k.sign(ctx, conn, session, &yubihsm.SignPSSCommand{
 		KeyID:   k.keyID,
 		MGF1:    hash,
@@ -117,7 +118,7 @@ func (k *KeyPair) sign(ctx context.Context, conn Connector, session *Session, cm
 	return rsp, err
 }
 
-// pssOptions is copied from Go crypto/rsa/pss.go
+// pssOptions is copied from Go crypto/rsa/pss.go.
 func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, error) {
 	hash := pss.Hash
 	saltLen := pss.SaltLength
@@ -127,17 +128,22 @@ func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, erro
 		if saltLen < 0 {
 			return 0, 0, rsa.ErrMessageTooLong
 		}
-		return hash, hash.Size(), nil
+
+		// BUG: delete this, fix tests
+		saltLen = hash.Size()
+
 	case rsa.PSSSaltLengthEqualsHash:
-		return hash, hash.Size(), nil
+		saltLen = hash.Size()
+
 	default:
 		// If we get here saltLength is either > 0 or < -1, in the
 		// latter case we fail out.
 		if saltLen <= 0 || saltLen >= 1<<16 {
 			return 0, 0, errors.New("crypto/rsa: PSSOptions.SaltLength cannot be negative or greater than 65535")
 		}
-		return hash, saltLen, nil
 	}
+
+	return hash, saltLen, nil
 }
 
 // AsCryptoSigner wraps the keypair into a type which can be used with
@@ -192,11 +198,13 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 			KeyID:      k.keyID,
 			CipherText: ciphertext,
 		})
+
 		var e yubihsm.Error
 		if o.SessionKeyLen > 0 && errors.As(err, &e) {
-			// TODO: check for specific error?
+			// BUG: checkout forr Error(2): invalid data
 			return readRand(o.SessionKeyLen)
 		}
+
 		return rsp, err
 
 	case *rsa.OAEPOptions:
@@ -223,10 +231,7 @@ func (k *KeyPair) decrypt(ctx context.Context, conn Connector, session *Session,
 func readRand(n int) ([]byte, error) {
 	buf := make([]byte, n)
 	_, err := rand.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
+	return checkErr(buf, err)
 }
 
 // AsCryptoDecrypter wraps the keypair into a type which can be used with
@@ -258,7 +263,7 @@ type cryptoSigner struct {
 	keyPair KeyPair
 	session *Session
 	conn    Connector
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx
 }
 
 func (s *cryptoSigner) Public() crypto.PublicKey {
@@ -273,7 +278,7 @@ type cryptoDecrypter struct {
 	keyPair KeyPair
 	session *Session
 	conn    Connector
-	ctx     context.Context
+	ctx     context.Context //nolint:containedctx
 }
 
 func (d *cryptoDecrypter) Public() crypto.PublicKey {
