@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/aead/cmac v0.0.0-20160719120800-7af84192f0b1
+	github.com/google/gousb v1.1.3
 	golang.org/x/crypto v0.48.0
 )
 
