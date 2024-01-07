@@ -340,7 +340,7 @@ func (s *Session) encryptResponse(response []byte, trim int) []byte {
 	inner = inner[:len(inner)-trim]
 	out = out[:len(out)-trim]
 
-	mac := s.calculateCMAC(yubihsm.ResponseSessionMessage, s.sessionID, inner)
+	mac := calculateCMAC(s.rmacKey, s.macChaining, yubihsm.ResponseSessionMessage, s.sessionID, inner)
 	copy(out[len(out)-macLength:], mac[:])
 
 	return out
@@ -431,7 +431,8 @@ func FuzzSessionResponseParsing(f *testing.F) {
 		block, _ := aes.NewCipher(session.encryptionKey[:])
 		block.Encrypt(iv[:], iv[:])
 
-		_, _ = session.decryptSessionResponse(block, iv[:], in)
+		decrypt := decryptResponse{session.rmacKey, session.macChaining, block, iv[:], session.sessionID}
+		_, _ = decrypt.decryptSessionResponse(in)
 	})
 }
 

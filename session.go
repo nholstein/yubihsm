@@ -207,14 +207,14 @@ func (s *Session) authenticateSession(encKey, macKey SessionKey, hostChallenge y
 	s.sessionID = create.SessionID
 	s.messageCounter = 1
 
-	rsp := yubihsm.AuthenticateSessionCommand{
+	cmd := yubihsm.AuthenticateSessionCommand{
 		SessionID: create.SessionID,
 	}
-	rsp.HostCryptogram = deriveCryptogram(1, macKey, hostChallenge, create.CardChallenge)
-	s.macChaining = s.calculateCMAC(rsp.ID(), rsp.SessionID, rsp.HostCryptogram[:])
-	copy(rsp.CMAC[:], s.macChaining[:])
+	cmd.HostCryptogram = deriveCryptogram(1, macKey, hostChallenge, create.CardChallenge)
+	s.macChaining = calculateCMAC(s.macKey, s.macChaining, cmd.ID(), cmd.SessionID, cmd.HostCryptogram[:])
+	copy(cmd.CMAC[:], s.macChaining[:])
 
-	return &rsp, nil
+	return &cmd, nil
 }
 
 // Authenticate performs the cryptographic exchange to authenticate with
@@ -391,13 +391,7 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 	return KeyPair{public, keyID}, nil
 }
 
-func (s *Session) calculateCMAC(cmd yubihsm.CommandID, session byte, contents []byte) (k SessionKey) {
-	// Use the receive MAC key for response messages
-	key := s.macKey
-	if cmd >= yubihsm.CommandResponse {
-		key = s.rmacKey
-	}
-
+func calculateCMAC(key, chaining SessionKey, cmd yubihsm.CommandID, session byte, contents []byte) (k SessionKey) {
 	// Keys are hardcoded to 16 bytes; cipher and CMAC construction
 	// cannot fail.
 	block, _ := aes.NewCipher(key[:])
@@ -407,7 +401,7 @@ func (s *Session) calculateCMAC(cmd yubihsm.CommandID, session byte, contents []
 	// and its contents.
 	l := 1 + macLength + len(contents)
 	header := [4]byte{byte(cmd), byte(l >> 8), byte(l), session}
-	_, _ = mac.Write(s.macChaining[:])
+	_, _ = mac.Write(chaining[:])
 	_, _ = mac.Write(header[:])
 	_, _ = mac.Write(contents)
 
@@ -416,17 +410,48 @@ func (s *Session) calculateCMAC(cmd yubihsm.CommandID, session byte, contents []
 	return
 }
 
+// sendCommand encrypts a session message command, transmits it via the
+// provided connector, and then decrypts the response.
+//
+// It must be called with the session unlocked.
 func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.Command, rsp yubihsm.Response) error {
-	if s.messageCounter == 0 {
-		return ErrNotAuthenticated
-	} else if s.messageCounter >= maxMessagesBeforeRekey {
-		return ErrReauthenticationRequired
-	}
-
 	// While the largest command supported is ~2kB, this should be
 	// large enough for the majority of commands sent without causing
 	// too much heap spillage.
 	var buf [256]byte
+
+	// Encrypt the command, return the encrypted command an the
+	// decryption state. This step locks the session.
+	decrypt, message, err := s.encryptCommand(cmd, buf[:0])
+	if err != nil {
+		return err
+	}
+
+	// After this point the session is unlocked, and the variable
+	// itself cannot be used to validate the incoming response.
+
+	// Send the command, and verify the session message response
+	// envelope.
+	message, err = conn.SendCommand(ctx, message)
+	if err != nil {
+		return err
+	}
+
+	message, err = decrypt.decryptSessionResponse(message)
+	if err != nil {
+		return err
+	}
+
+	// Validate the inner message header correctness.
+	return yubihsm.ParseResponse(cmd.ID(), rsp, message)
+}
+
+func (s *Session) encryptCommand(cmd yubihsm.Command, buf []byte) (*decryptResponse, []byte, error) {
+	if s.messageCounter == 0 {
+		return nil, nil, ErrNotAuthenticated
+	} else if s.messageCounter >= maxMessagesBeforeRekey {
+		return nil, nil, ErrReauthenticationRequired
+	}
 
 	// We serialize and encrypt the command message in-place within a
 	// session message envelope. The overhead consists of the 4-byte
@@ -457,21 +482,7 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 
 	// Encrypt the session message and insert the CMAC.
 	block, iv := s.encryptThenMAC(message)
-
-	// Send the command, and verify the session message response
-	// envelope.
-	message, err := conn.SendCommand(ctx, message)
-	if err != nil {
-		return err
-	}
-
-	message, err = s.decryptSessionResponse(block, iv, message)
-	if err != nil {
-		return err
-	}
-
-	// Validate the inner message header correctness.
-	return yubihsm.ParseResponse(cmd.ID(), rsp, message)
+	return &decryptResponse{s.rmacKey, s.macChaining, block, iv, s.sessionID}, message, nil
 }
 
 // encryptThenMAC encrypte the message in-place then computes the message
@@ -498,13 +509,27 @@ func (s *Session) encryptThenMAC(message []byte) (cipher.Block, []byte) {
 
 	// The appended MAC is the first 8 bytes of the truncated session
 	// chaining MAC.
-	s.macChaining = s.calculateCMAC(yubihsm.CommandSessionMessage, s.sessionID, inner)
+	s.macChaining = calculateCMAC(s.macKey, s.macChaining, yubihsm.CommandSessionMessage, s.sessionID, inner)
 	copy(message[len(message)-macLength:], s.macChaining[:macLength])
 
 	return block, iv[:]
 }
 
-func (s *Session) decryptSessionResponse(block cipher.Block, iv, message []byte) ([]byte, error) {
+// decryptResponse holds the session state needed to decrypt a response
+// message from the HSM. Each instance is valid for a single invocation
+// of [Session.sendCommand] and should not be reused.
+type decryptResponse struct {
+	rmacKey     SessionKey
+	macChaining SessionKey
+	block       cipher.Block
+	iv          []byte
+	sessionID   byte
+}
+
+// decryptSessionResponse decrypts a response message from the YubiHSM2
+// and returns the inner message. The message is decrypted in-place, so
+// the returned plaintext message aliases the incoming message buffer.
+func (d *decryptResponse) decryptSessionResponse(message []byte) ([]byte, error) {
 	if len(message) < sessionHeaderLength+yubihsm.HeaderLength+macLength {
 		// Four bytes in outer session message, three bytes inner,
 		// eight bytes of MAC.
@@ -519,20 +544,20 @@ func (s *Session) decryptSessionResponse(block cipher.Block, iv, message []byte)
 		return nil, ErrInvalidMessage
 	} else if msgLen != len(message)-yubihsm.HeaderLength {
 		return nil, ErrInvalidMessage
-	} else if message[yubihsm.HeaderLength] != s.sessionID {
+	} else if message[yubihsm.HeaderLength] != d.sessionID {
 		// TODO: need to synchronize across sessions!
-		return nil, fmt.Errorf("session %d received response for session %d", s.sessionID, message[3])
+		return nil, fmt.Errorf("session %d received response for session %d", d.sessionID, message[3])
 	}
 
 	// Verify the response MAC by comparing it to the expected value.
 	inner := message[sessionHeaderLength : len(message)-macLength]
-	validMAC := s.calculateCMAC(yubihsm.ResponseSessionMessage, s.sessionID, inner)
+	validMAC := calculateCMAC(d.rmacKey, d.macChaining, yubihsm.ResponseSessionMessage, d.sessionID, inner)
 	recvedMAC := message[len(message)-macLength:]
 	if subtle.ConstantTimeCompare(validMAC[:macLength], recvedMAC) != 1 {
 		return nil, ErrIncorrectMAC
 	}
 
 	// Decrypt the inner response message.
-	cipher.NewCBCDecrypter(block, iv).CryptBlocks(inner, inner)
+	cipher.NewCBCDecrypter(d.block, d.iv).CryptBlocks(inner, inner)
 	return inner, nil
 }
