@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/aead/cmac"
 
@@ -126,6 +127,13 @@ func WithAuthenticationKeyID(keyID ObjectID) AuthenticationOption {
 //
 // [YubiHSM2 Session]: https://developers.yubico.com/YubiHSM2/Concepts/Session.html
 type Session struct {
+	lock sync.Mutex
+	session
+}
+
+// session holds the cryptographic state of a [Session]. Access to its
+// fields must be synchronized to avoid races.
+type session struct {
 	encryptionKey  SessionKey
 	macKey         SessionKey
 	rmacKey        SessionKey
@@ -191,7 +199,7 @@ func deriveCryptogram(derivationConstant byte, key SessionKey, hostChallenge, de
 //
 // https://developers.yubico.com/YubiHSM2/Commands/Create_Session.html
 // https://developers.yubico.com/YubiHSM2/Commands/Authenticate_Session.html
-func (s *Session) authenticateSession(encKey, macKey SessionKey, hostChallenge yubihsm.Challenge, create *yubihsm.CreateSessionResponse) (*yubihsm.AuthenticateSessionCommand, error) {
+func (s *session) authenticateSession(encKey, macKey SessionKey, hostChallenge yubihsm.Challenge, create *yubihsm.CreateSessionResponse) (*yubihsm.AuthenticateSessionCommand, error) {
 	rmacKey := deriveSessionKey(7, macKey, hostChallenge, create.CardChallenge)
 	macKey = deriveSessionKey(6, macKey, hostChallenge, create.CardChallenge)
 	encKey = deriveSessionKey(4, encKey, hostChallenge, create.CardChallenge)
@@ -220,8 +228,14 @@ func (s *Session) authenticateSession(encKey, macKey SessionKey, hostChallenge y
 // Authenticate performs the cryptographic exchange to authenticate with
 // the YubiHSM2 and establish an encrypted communication channel.
 func (s *Session) Authenticate(ctx context.Context, conn Connector, options ...AuthenticationOption) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// TODO: close the existing session?
+	// TODO: perform work in a temporary, without lock held.
+
 	// Clear out all keys when beginning authentication.
-	*s = Session{}
+	s.session = session{}
 
 	var config authConfig
 	config.apply(options)
@@ -281,7 +295,7 @@ func (s *Session) GetDeviceInfo(ctx context.Context, conn Connector) (DeviceInfo
 	// if the session isn't authenticated.
 
 	trusted := true
-	err := s.sendCommand(ctx, conn, cmd, &rsp)
+	err := s.sendCommand(ctx, conn, false, cmd, &rsp)
 	if errors.Is(err, ErrNotAuthenticated) {
 		trusted = false
 		err = sendPlaintext(ctx, conn, cmd, &rsp)
@@ -308,9 +322,9 @@ func (s *Session) GetDeviceInfo(ctx context.Context, conn Connector) (DeviceInfo
 // [context.Context] and [Connector] must be provided to send a close
 // message to the HSM.
 func (s *Session) Close(ctx context.Context, conn Connector) error {
-	err := s.sendCommand(ctx, conn, yubihsm.CloseSessionCommand{}, yubihsm.CloseSessionResponse{})
-	s.messageCounter = 0
-	return err
+	// Reset the messageCounter within encryptCommand to mark the
+	// session as unauthenticated.
+	return s.sendCommand(ctx, conn, true, yubihsm.CloseSessionCommand{}, yubihsm.CloseSessionResponse{})
 }
 
 // Ping sends a [ping] message to the YubiHSM2 and returns the received
@@ -324,7 +338,7 @@ func (s *Session) Close(ctx context.Context, conn Connector) error {
 // [Echo command]: https://developers.yubico.com/YubiHSM2/Commands/Echo.html
 func (s *Session) Ping(ctx context.Context, conn Connector, data ...byte) error {
 	pingPong := yubihsm.Echo(data)
-	err := s.sendCommand(ctx, conn, pingPong, &pingPong)
+	err := s.sendCommand(ctx, conn, false, pingPong, &pingPong)
 	if err != nil {
 		return err
 	} else if !bytes.Equal(data, pingPong) {
@@ -344,7 +358,7 @@ func (s *Session) GetPublicKey(ctx context.Context, conn Connector, keyID Object
 		KeyID: keyID,
 	}
 	var rsp yubihsm.GetPublicKeyResponse
-	err := s.sendCommand(ctx, conn, &cmd, &rsp)
+	err := s.sendCommand(ctx, conn, false, &cmd, &rsp)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +381,7 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 		yubihsm.LabelFilter(label),
 	}
 	var rsp yubihsm.ListObjectsResponse
-	err := s.sendCommand(ctx, conn, cmd, &rsp)
+	err := s.sendCommand(ctx, conn, false, cmd, &rsp)
 	if err != nil {
 		return KeyPair{}, err
 	} else if len(rsp) == 0 {
@@ -410,7 +424,7 @@ func calculateCMAC(key, chaining SessionKey, cmd yubihsm.CommandID, session byte
 // provided connector, and then decrypts the response.
 //
 // It must be called with the session unlocked.
-func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.Command, rsp yubihsm.Response) error {
+func (s *Session) sendCommand(ctx context.Context, conn Connector, reset bool, cmd yubihsm.Command, rsp yubihsm.Response) error {
 	// While the largest command supported is ~2kB, this should be
 	// large enough for the majority of commands sent without causing
 	// too much heap spillage.
@@ -418,7 +432,7 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 
 	// Encrypt the command, return the encrypted command an the
 	// decryption state. This step locks the session.
-	decrypt, message, err := s.encryptCommand(cmd, buf[:0])
+	decrypt, message, err := s.encryptCommand(cmd, buf[:0], reset)
 	if err != nil {
 		return err
 	}
@@ -442,7 +456,10 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, cmd yubihsm.C
 	return yubihsm.ParseResponse(cmd.ID(), rsp, message)
 }
 
-func (s *Session) encryptCommand(cmd yubihsm.Command, buf []byte) (*decryptResponse, []byte, error) {
+func (s *Session) encryptCommand(cmd yubihsm.Command, buf []byte, reset bool) (*decryptResponse, []byte, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	if s.messageCounter == 0 {
 		return nil, nil, ErrNotAuthenticated
 	} else if s.messageCounter >= maxMessagesBeforeRekey {
@@ -478,24 +495,31 @@ func (s *Session) encryptCommand(cmd yubihsm.Command, buf []byte) (*decryptRespo
 
 	// Encrypt the session message and insert the CMAC.
 	block, iv := s.encryptThenMAC(message)
+
+	// Reset the messageCounter when closing a session, otherwise
+	// increment the counter .
+	if reset {
+		s.messageCounter = 0
+	} else {
+		s.messageCounter++
+	}
+
 	return &decryptResponse{s.rmacKey, s.macChaining, block, iv, s.sessionID}, message, nil
 }
 
-// encryptThenMAC encrypte the message in-place then computes the message
+// encryptThenMAC encrypts the message in-place then computes the message
 // CMAC and writes it in the final 8 bytes of the message. Space for the
 // header and MAC must be allocated at the front and back.
 //
 // Returns the AES block cipher and IV which can be used to decrypt the
 // response.
-func (s *Session) encryptThenMAC(message []byte) (cipher.Block, []byte) {
+func (s *session) encryptThenMAC(message []byte) (cipher.Block, []byte) {
 	// Create the CBC IV: 16 bytes; 12 zeroes and 32-bit counter. The
 	// serialized counter is encrypted with the session encryption
 	// key to result in the IV.
-	//
-	// Increment the counter early to ensure an IV is never reused.
 	var iv [aes.BlockSize]byte
 	yubihsm.Put32(iv[len(iv)-4:], s.messageCounter)
-	s.messageCounter++
+
 	block, _ := aes.NewCipher(s.encryptionKey[:])
 	block.Encrypt(iv[:], iv[:])
 

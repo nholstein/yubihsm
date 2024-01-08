@@ -288,7 +288,7 @@ func testKeyRSA(t *testing.T, bits int) {
 			checkDecryption(t, plaintext, err)
 
 			key := decrypter.(*cryptoDecrypter)
-			session := *key.session
+			session := Session{session: key.session.session}
 			response := sessionResponse{&session, [][]byte{{0x7f, 0, 1, 9}}}
 			plaintext, err = key.keyPair.Decrypt(key.ctx, &response, &session, message, nil)
 			var pErr yubihsm.Error

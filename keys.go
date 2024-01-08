@@ -114,7 +114,7 @@ func (k *KeyPair) signRSA(ctx context.Context, conn Connector, session *Session,
 
 func (k *KeyPair) sign(ctx context.Context, conn Connector, session *Session, cmd yubihsm.Command) ([]byte, error) {
 	var rsp yubihsm.SignResponse
-	err := session.sendCommand(ctx, conn, cmd, &rsp)
+	err := session.sendCommand(ctx, conn, false, cmd, &rsp)
 	return rsp, err
 }
 
@@ -223,7 +223,7 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 
 func (k *KeyPair) decrypt(ctx context.Context, conn Connector, session *Session, cmd yubihsm.Command) ([]byte, error) {
 	var rsp yubihsm.DecryptResponse
-	err := session.sendCommand(ctx, conn, cmd, &rsp)
+	err := session.sendCommand(ctx, conn, false, cmd, &rsp)
 	return rsp, err
 }
 

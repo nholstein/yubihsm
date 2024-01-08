@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -410,6 +411,30 @@ func TestSessionRekey(t *testing.T) {
 		testSendPing(ctx, t, conn, session)
 		testSessionClose(ctx, t, conn, session)
 	})
+}
+
+func TestSessionLocking(t *testing.T) {
+	t.Parallel()
+	ctx, conn, session := loadReplaySession(t, "session-open-close.log")
+	testSendPing(ctx, t, conn, session)
+	testSessionClose(ctx, t, conn, session)
+
+	var parallel sync.WaitGroup
+
+	for _, fn := range []func(){
+		func() { _ = session.Ping(ctx, conn, 1, 2, 3, 4) },
+		func() { _ = session.Close(ctx, conn) },
+		func() { _ = session.Authenticate(ctx, conn) },
+		func() { _, _ = session.GetPublicKey(ctx, conn, 0x1234) },
+		func() { _, _ = session.LoadKeyPair(ctx, conn, "not-a-valid-label") },
+		func() { _, _ = session.GetDeviceInfo(ctx, conn) },
+	} {
+		fn := fn
+		parallel.Add(1)
+		go func() { fn(); parallel.Done() }()
+	}
+
+	parallel.Wait()
 }
 
 func FuzzSessionResponseParsing(f *testing.F) {
