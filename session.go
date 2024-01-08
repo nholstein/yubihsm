@@ -274,21 +274,17 @@ func (s *Session) GetDeviceInfo(ctx context.Context, conn Connector) (DeviceInfo
 	var (
 		cmd yubihsm.DeviceInfoCommand
 		rsp yubihsm.DeviceInfoResponse
-		buf []byte
-		err error
 	)
 
-	// messageCounter is set to 1 after establishing a session (and
-	// set to 0 on close).
-	trusted := s.messageCounter > 0
+	// sendCommand checks the authentication state as its first step
+	// after locking the session. Fallback to an unencrypted request
+	// if the session isn't authenticated.
 
-	if trusted {
-		err = s.sendCommand(ctx, conn, cmd, &rsp)
-	} else {
-		buf, err = conn.SendCommand(ctx, cmd.Serialize(nil))
-		if err == nil {
-			err = yubihsm.ParseResponse(cmd.ID(), &rsp, buf)
-		}
+	trusted := true
+	err := s.sendCommand(ctx, conn, cmd, &rsp)
+	if errors.Is(err, ErrNotAuthenticated) {
+		trusted = false
+		err = sendPlaintext(ctx, conn, cmd, &rsp)
 	}
 	if err != nil {
 		return DeviceInfo{}, err
