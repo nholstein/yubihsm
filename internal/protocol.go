@@ -196,7 +196,7 @@ const (
 	errWrongAuthenticationKey              // wrong authentication key
 	errNoMoreSessions                      // no more available sessions
 	errSessionSetupFailed                  // session setup failed
-	errStoriageFull                        // storage full
+	errStorageFull                         // storage full
 	errWrongLength                         // wrong data length for the command
 	errPermisions                          // insufficient permissions for the command
 	errAuditLogFull                        // the log is full and force audit is enabled
@@ -213,6 +213,9 @@ const (
 func (e Error) Error() string {
 	return e.String()
 }
+
+// ErrRsaDecryptFailed is the error from a failed RSA decryption command.
+const ErrRsaDecryptFailed = errMalformedCommand
 
 func parseError(buf []byte) error {
 	var e Error

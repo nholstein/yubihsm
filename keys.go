@@ -199,9 +199,7 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 			CipherText: ciphertext,
 		})
 
-		var e yubihsm.Error
-		if o.SessionKeyLen > 0 && errors.As(err, &e) {
-			// BUG: checkout forr Error(2): invalid data
+		if o.SessionKeyLen > 0 && errors.Is(err, yubihsm.ErrRsaDecryptFailed) {
 			return readRand(o.SessionKeyLen)
 		}
 

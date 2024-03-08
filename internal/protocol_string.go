@@ -149,7 +149,7 @@ func _() {
 	_ = x[errWrongAuthenticationKey-4]
 	_ = x[errNoMoreSessions-5]
 	_ = x[errSessionSetupFailed-6]
-	_ = x[errStoriageFull-7]
+	_ = x[errStorageFull-7]
 	_ = x[errWrongLength-8]
 	_ = x[errPermisions-9]
 	_ = x[errAuditLogFull-10]
