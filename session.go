@@ -36,6 +36,10 @@ const (
 
 	// sessionHeaderLength is command ID, length, session ID.
 	sessionHeaderLength = 1 + 2 + 1
+
+	deriveEncKey  = 4
+	deriveMacKey  = 6
+	deriveRmacKey = 7
 )
 
 // ObjectID identifies a key or other object stored on a YubiHSM2.
@@ -200,9 +204,9 @@ func deriveCryptogram(derivationConstant byte, key SessionKey, hostChallenge, de
 // https://developers.yubico.com/YubiHSM2/Commands/Create_Session.html
 // https://developers.yubico.com/YubiHSM2/Commands/Authenticate_Session.html
 func (s *session) authenticateSession(encKey, macKey SessionKey, hostChallenge yubihsm.Challenge, create *yubihsm.CreateSessionResponse) (*yubihsm.AuthenticateSessionCommand, error) {
-	rmacKey := deriveSessionKey(7, macKey, hostChallenge, create.CardChallenge)
-	macKey = deriveSessionKey(6, macKey, hostChallenge, create.CardChallenge)
-	encKey = deriveSessionKey(4, encKey, hostChallenge, create.CardChallenge)
+	rmacKey := deriveSessionKey(deriveRmacKey, macKey, hostChallenge, create.CardChallenge)
+	macKey = deriveSessionKey(deriveMacKey, macKey, hostChallenge, create.CardChallenge)
+	encKey = deriveSessionKey(deriveEncKey, encKey, hostChallenge, create.CardChallenge)
 
 	cardCryptogram := deriveCryptogram(0, macKey, hostChallenge, create.CardChallenge)
 	if subtle.ConstantTimeCompare(cardCryptogram[:], create.CardCryptogram[:]) != 1 {
@@ -353,7 +357,7 @@ func (s *Session) Ping(ctx context.Context, conn Connector, data ...byte) error 
 //
 // The return public key will be one of an [*ecdsa.PublicKey],
 // [ed25519.PublicKey], or an [*rsa.PublicKey].
-func (s *Session) GetPublicKey(ctx context.Context, conn Connector, keyID ObjectID) (PublicKey, error) {
+func (s *Session) GetPublicKey(ctx context.Context, conn Connector, keyID ObjectID) (PublicKey, error) { //nolint:ireturn
 	cmd := yubihsm.GetPublicKeyCommand{
 		KeyID: keyID,
 	}
@@ -382,11 +386,14 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 	}
 	var rsp yubihsm.ListObjectsResponse
 	err := s.sendCommand(ctx, conn, false, cmd, &rsp)
-	if err != nil {
+	switch {
+	case err != nil:
 		return KeyPair{}, err
-	} else if len(rsp) == 0 {
+
+	case len(rsp) == 0:
 		return KeyPair{}, fmt.Errorf("could not find asymmetric-key labeled %q", label)
-	} else if len(rsp) > 1 {
+
+	case len(rsp) > 1:
 		// This should be impossible, keys are identified via
 		// the (type, ID) pair.
 		return KeyPair{}, fmt.Errorf("HSM error: found %d asymmetric-keys labeled %q", len(rsp), label)
@@ -410,7 +417,7 @@ func calculateCMAC(key, chaining SessionKey, cmd yubihsm.CommandID, session byte
 	// Compute the CMAC over the chaining MAC, the message header,
 	// and its contents.
 	l := 1 + macLength + len(contents)
-	header := [4]byte{byte(cmd), byte(l >> 8), byte(l), session}
+	header := [4]byte{byte(cmd), byte(l >> 8), byte(l), session} //nolint:gomnd
 	_, _ = mac.Write(chaining[:])
 	_, _ = mac.Write(header[:])
 	_, _ = mac.Write(contents)
@@ -560,11 +567,14 @@ func (d *decryptResponse) decryptSessionResponse(message []byte) ([]byte, error)
 	}
 
 	msgCmdID, msgLen := yubihsm.ParseHeader(message)
-	if msgCmdID != yubihsm.ResponseSessionMessage {
+	switch {
+	case msgCmdID != yubihsm.ResponseSessionMessage:
 		return nil, ErrInvalidMessage
-	} else if msgLen != len(message)-yubihsm.HeaderLength {
+
+	case msgLen != len(message)-yubihsm.HeaderLength:
 		return nil, ErrInvalidMessage
-	} else if message[yubihsm.HeaderLength] != d.sessionID {
+
+	case message[yubihsm.HeaderLength] != d.sessionID:
 		// TODO: need to synchronize across sessions!
 		return nil, fmt.Errorf("session %d received response for session %d", d.sessionID, message[3])
 	}

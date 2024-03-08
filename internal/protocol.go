@@ -95,6 +95,7 @@ const (
 // [YubiHSM2 Commands]: https://developers.yubico.com/YubiHSM2/Commands/
 type CommandID uint8
 
+//nolint:revive
 const (
 	// CommandResponse is the high-order bit which is OR'ed to the
 	// command ID in all response messages.
@@ -222,18 +223,18 @@ func parseError(buf []byte) error {
 	if len(buf) > HeaderLength {
 		e = Error(buf[HeaderLength])
 	}
-	return fmt.Errorf("received an error response: (%d) %w", e, e)
+	return fmt.Errorf("received an error response: (%d) %w", int(e), e)
 }
 
 // Command is a serializable message sent to the YubiHSM2.
 type Command interface {
 	ID() CommandID
-	Serialize([]byte) []byte
+	Serialize(out []byte) []byte
 }
 
 // Response is a deserializable message received from the YubiHSM2.
 type Response interface {
-	Parse([]byte) error
+	Parse(msg []byte) error
 }
 
 func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
@@ -242,11 +243,15 @@ func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 	}
 
 	rspCmdID, rspLen := ParseHeader(buf)
-	if len(buf)-HeaderLength < rspLen {
+	switch {
+	case len(buf)-HeaderLength < rspLen:
 		return errors.New("invalid response message length")
-	} else if rspCmdID == commandError {
+
+	case rspCmdID == commandError:
 		return parseError(buf)
-	} else if rspCmdID != CommandResponse|cmdID {
+
+	case rspCmdID != CommandResponse|cmdID:
+
 		return fmt.Errorf("received a response for a different command: %#02x", int(rspCmdID))
 	}
 

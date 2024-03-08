@@ -35,7 +35,7 @@ func Put32[V ~uint32 | ~int32 | ~int](b []byte, v V) {
 }
 
 func Parse8[V ~uint8 | ~int8](b []byte, o int, v *V) {
-	*v = V(uint8(b[o]))
+	*v = V(b[o])
 }
 
 func Parse16[V ~uint16 | ~int16](b []byte, o int, v *V) {

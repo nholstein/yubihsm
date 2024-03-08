@@ -124,7 +124,7 @@ func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, erro
 	saltLen := pss.SaltLength
 	switch saltLen {
 	case rsa.PSSSaltLengthAuto:
-		saltLen = (pub.N.BitLen()-1+7)/8 - 2 - hash.Size()
+		saltLen = (pub.N.BitLen()-1+7)/8 - 2 - hash.Size() //nolint:gomnd
 		if saltLen < 0 {
 			return 0, 0, rsa.ErrMessageTooLong
 		}

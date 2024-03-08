@@ -19,9 +19,7 @@ type Challenge [8]byte
 // and used to derive session keys.
 type Cryptogram [8]byte
 
-// Cryptogram
-
-// PublicKey is the strongly-typed [crypto.PublicKey]
+// PublicKey is the strongly-typed [crypto.PublicKey].
 type PublicKey interface {
 	Equal(x crypto.PublicKey) bool
 }
@@ -37,6 +35,7 @@ func makeObjectDataCmd(out []byte, c Command, keyID ObjectID, data []byte) []byt
 }
 
 func mgf1AlgorithmID(mgf1 crypto.Hash) AlgorithmID {
+	//nolint:exhaustive
 	switch mgf1 {
 	case crypto.SHA1:
 		return AlgorithmMGF1SHA1
@@ -203,6 +202,7 @@ type GetPublicKeyResponse struct {
 	PublicKey interface{ Equal(x crypto.PublicKey) bool }
 }
 
+//nolint:cyclop
 func (g *GetPublicKeyResponse) Parse(b []byte) error {
 	if len(b) < 1 {
 		return badLength()
@@ -210,6 +210,8 @@ func (g *GetPublicKeyResponse) Parse(b []byte) error {
 
 	a := AlgorithmID(b[0])
 	b = b[1:]
+
+	//nolint:exhaustive
 	switch a {
 	case AlgorithmED25519:
 		if len(b) != ed25519.PublicKeySize {
@@ -271,9 +273,9 @@ func (g *GetPublicKeyResponse) parsePublicKeyECDSA(b []byte, curve elliptic.Curv
 	return nil
 }
 
-type listObjectsFilter func([]byte) []byte
+type ListObjectsFilter func([]byte) []byte
 
-type ListObjectsCommand []listObjectsFilter
+type ListObjectsCommand []ListObjectsFilter
 
 // https://developers.yubico.com/YubiHSM2/Commands/List_Objects.html
 const (
@@ -285,13 +287,13 @@ const (
 	filterLabel                   // 40 bytes
 )
 
-func TypeFilter(typeID TypeID) listObjectsFilter {
+func TypeFilter(typeID TypeID) ListObjectsFilter {
 	return func(b []byte) []byte {
 		return append(b, filterType, byte(typeID))
 	}
 }
 
-func LabelFilter(label string) listObjectsFilter {
+func LabelFilter(label string) ListObjectsFilter {
 	return func(b []byte) []byte {
 		// Labels are padded and limited to 40 bytes
 		var f [1 + 40]byte
