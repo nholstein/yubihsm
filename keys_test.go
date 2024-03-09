@@ -552,17 +552,23 @@ func TestKeyPairCoverage(t *testing.T) {
 		t.Run("failed auto salt length", func(t *testing.T) {
 			// I'm not sure a way to make this fail without cheating?
 			public := private.publicKey.(*rsa.PublicKey)
-			n := public.N.Bytes()
-			public.N.SetUint64(0xffffffffffffffff)
+			n := public.N
+			defer func() { public.N = n }()
 
-			signature, err := private.Sign(ctx, conn, session, message, &rsa.PSSOptions{
-				Hash: crypto.SHA256,
-			})
-			if err == nil || signature != nil {
-				t.Errorf("computed salt length should fail")
+			for _, bad := range []*big.Int{
+				// Public modulus too small.
+				big.NewInt(0x7fffffffffffffff),
+				// Public modulus too large for sign-pss command.
+				big.NewInt(0).Lsh(big.NewInt(1), 1_000_000),
+			} {
+				public.N = bad
+				signature, err := private.Sign(ctx, conn, session, message, &rsa.PSSOptions{
+					Hash: crypto.SHA256,
+				})
+				if err == nil || signature != nil {
+					t.Errorf("computed salt length should fail")
+				}
 			}
-
-			public.N.SetBytes(n)
 		})
 
 		t.Run("key still valid", func(t *testing.T) {

@@ -159,9 +159,13 @@ func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, erro
 	default:
 		// If we get here saltLength is either > 0 or < -1, in the
 		// latter case we fail out.
-		if saltLen <= 0 || saltLen >= 1<<16 {
+		if saltLen <= 0 {
 			return 0, 0, errors.New("crypto/rsa: PSSOptions.SaltLength cannot be negative or greater than 65535")
 		}
+	}
+
+	if saltLen >= 1<<16 {
+		return 0, 0, errors.New("RSA PSS salt too long")
 	}
 
 	return hash, saltLen, nil
