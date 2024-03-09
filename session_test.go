@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/sha256"
 	"errors"
+	"flag"
 	"io"
 	"strings"
 	"sync"
@@ -17,6 +18,8 @@ import (
 
 	yubihsm "github.com/nholstein/yubihsm/internal"
 )
+
+var record = flag.Bool("record", false, "enable recording of (mock)HSM messages")
 
 // T is either a [testing.T] or [testing.Fuzz].
 type T interface {
@@ -53,8 +56,25 @@ func testAuthenticate(ctx context.Context, t T, conn Connector, s *Session, opti
 
 // loadReplaySession creates a [Session] using replayed yubihsm-connector
 // logs. The returned session is automatically authenticated.
-func loadReplaySession(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, *replayConnector, *Session) {
+func loadReplaySession(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, testConnector, *Session) {
 	t.Helper()
+
+	if *record {
+		ctx := testingContext(t)
+		conn := &logMessagesConnector{T: t}
+		conn.cleanup(t, yubihsmConnectorLog)
+
+		var session Session
+		err := session.Authenticate(ctx, conn)
+		if err != nil {
+			t.Errorf("sessions.Authenticate(): %v", err)
+		} else {
+			t.Logf("session authenticated with SessionID: %d", session.sessionID)
+		}
+
+		return ctx, conn, &session
+	}
+
 	ctx, conn, options := loadReplay(t, yubihsmConnectorLog, options...)
 	var session Session
 	testAuthenticate(ctx, t, conn, &session, options...)
@@ -79,7 +99,7 @@ func loadMultiReplay(t T, yubihsmConnectorLog string, expect int, options ...Aut
 	t.Helper()
 	ctx := testingContext(t)
 
-	if false {
+	if *record {
 		conn := &logMessagesConnector{T: t}
 		conn.cleanup(t, yubihsmConnectorLog)
 

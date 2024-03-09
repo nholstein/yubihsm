@@ -23,7 +23,7 @@ import (
 // loadReplayKey creates a [Session] and [KeyPair] using replayed
 // yubihsm-connector logs. The returned session is automatically
 // authenticated and key loaded by label.
-func loadReplayKey(t *testing.T, yubihsmConnectorLog, label string) (context.Context, *replayConnector, *Session, *KeyPair) {
+func loadReplayKey(t *testing.T, yubihsmConnectorLog, label string) (context.Context, testConnector, *Session, *KeyPair) {
 	t.Helper()
 	ctx, conn, session := loadReplaySession(t, yubihsmConnectorLog)
 	private, err := session.LoadKeyPair(ctx, conn, label)

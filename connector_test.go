@@ -22,6 +22,11 @@ var testdataLogs embed.FS
 
 var matchConnectorLogLine = regexp.MustCompile(`^DEBU\[\d{4}\]\susb endpoint (\w+).*buf="\[((\d|\s)*)\]"`)
 
+type testConnector interface {
+	Connector
+	flush()
+}
+
 // replayConnector allows replaying a series of commands & responses to
 // a YubiHSM2.
 //
@@ -209,6 +214,10 @@ func (l *logMessagesConnector) SendCommand(ctx context.Context, cmd []byte) ([]b
 	return rsp, err
 }
 
+func (l *logMessagesConnector) flush() {
+	l.Logf("logMessagesConnector.flush()")
+}
+
 func (l *logMessagesConnector) cleanup(t T, logName string) {
 	t.Cleanup(func() { l.saveTestdata(t, logName) })
 }
@@ -226,15 +235,11 @@ func (l *logMessagesConnector) saveTestdata(t T, logName string) {
 		}
 	}()
 
-	_, err = fmt.Fprintf(file, "DEBU[0000] recorded %d commands for %q:\n", len(l.msgs), logName)
-	if err != nil {
-		t.Errorf("%s.Write(): %v", logName, err)
-	}
 	for i, msg := range l.msgs {
 		_, err = fmt.Fprintf(file,
 			"DEBU[%04d] usb endpoint write  buf=\"%d\"\n"+
 				"DEBU[%04d] usb endpoint read   buf=\"%d\"\n",
-			i, msg[0], i, msg[1],
+			2*i+1, msg[0], 2*i+2, msg[1],
 		)
 		if err != nil {
 			t.Errorf("%s.Write(): %v", logName, err)
