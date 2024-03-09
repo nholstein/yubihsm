@@ -153,9 +153,6 @@ func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, erro
 			return 0, 0, rsa.ErrMessageTooLong
 		}
 
-		// BUG: delete this, fix tests
-		saltLen = hash.Size()
-
 	case rsa.PSSSaltLengthEqualsHash:
 		saltLen = hash.Size()
 
