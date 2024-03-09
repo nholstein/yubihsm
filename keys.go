@@ -13,21 +13,45 @@ import (
 	yubihsm "github.com/nholstein/yubihsm/internal"
 )
 
-// PublicKey is the strongly-typed [crypto.PublicKey].
-type PublicKey = yubihsm.PublicKey
-
 // KeyPair manages either an RSA, ECDSA, or Ed25519 key on a YubiHSM2.
+//
+// A KeyPair is a [crypto.PrivateKey], but it does not directly implement
+// either [crypto.Signer] or [crypto.Decrypter]. This is because invoking
+// a command on an HSM requires a [context.Context] parameter, which is
+// not supported by the [crypto] API.
+//
+// Instead, use the [KeyPair.Sign] function directly, or used the
+// [KeyPair.AsCryptoSigner] to wrap a (KeyPair, context) pair into a
+// signing key object. The equivalent [KeyPair.Decrypt] and
+// [KeyPair.AsCryptoDecrypter] are used to obtain a decryption key.
 type KeyPair struct {
-	publicKey PublicKey
+	publicKey yubihsm.PublicKey
 	keyID     ObjectID
 }
 
-// Public returns the key's public half.
+// Public returns the public key. It implements [crypto.PrivateKey].
 //
 // It will be either an [rsa.PublicKey], [ecdsa.PublicKey], or [ed25519.PublicKey]
 // depending upon the type of the key in the YubiHSM.
-func (k *KeyPair) Public() PublicKey {
+func (k *KeyPair) Public() crypto.PublicKey {
 	return k.publicKey
+}
+
+// Equal checks if two private keys are equal. It implements [crypto.PrivateKey].
+//
+// This checks for logical equivalency of the keys; not if they are the
+// exact same objects on the same YubiHSM2. As an example, a private key
+// imported to multiple HSMs would compare equal, even if object IDs did
+// not match.
+func (k *KeyPair) Equal(x crypto.PrivateKey) bool {
+	rhs, ok := x.(cryptoPrivateKey)
+	return ok && k.publicKey.Equal(rhs.Public())
+}
+
+// cryptoPrivateKey is the interface of all [crypto.PrivateKey]s.
+type cryptoPrivateKey interface {
+	Public() crypto.PublicKey
+	Equal(x crypto.PrivateKey) bool
 }
 
 // Sign the message [digest] in the YubiHSM and return the signature.
@@ -147,7 +171,8 @@ func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, erro
 }
 
 // AsCryptoSigner wraps the keypair into a type which can be used with
-// the Go standard library's [crypto.Signer].
+// the Go standard library's [crypto.Signer]. The returned key also
+// defines an Equal() method to implement [crypto.PrivateKey].
 //
 // It does this by embedding the provided [ctx], [conn], and [session]
 // into the returned object. This is non-idiomatic; particularly wrapping
@@ -233,7 +258,8 @@ func readRand(n int) ([]byte, error) {
 }
 
 // AsCryptoDecrypter wraps the keypair into a type which can be used with
-// the Go standard library's [crypto.Decrypter].
+// the Go standard library's [crypto.Decrypter]. The returned key also
+// defines an Equal() method to implement [crypto.PrivateKey].
 //
 // It does this by embedding the provided [ctx], [conn], and [session]
 // into the returned object. This is non-idiomatic; particularly wrapping
@@ -264,10 +290,17 @@ type cryptoSigner struct {
 	ctx     context.Context //nolint:containedctx
 }
 
+// Equal implements [crypto.PrivateKey].
+func (s *cryptoSigner) Equal(x crypto.PrivateKey) bool {
+	return s.keyPair.Equal(x)
+}
+
+// Public implements [crypto.PrivateKey] and [crypto.Signer].
 func (s *cryptoSigner) Public() crypto.PublicKey {
 	return s.keyPair.publicKey
 }
 
+// Sign implements [crypto.PrivateKey] and [crypto.Signer].
 func (s *cryptoSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return s.keyPair.Sign(s.ctx, s.conn, s.session, digest, opts)
 }
@@ -279,10 +312,17 @@ type cryptoDecrypter struct {
 	ctx     context.Context //nolint:containedctx
 }
 
+// Equal implements [crypto.PrivateKey].
+func (d *cryptoDecrypter) Equal(x crypto.PrivateKey) bool {
+	return d.keyPair.Equal(x)
+}
+
+// Public implements [crypto.PrivateKey] and [crypto.Decrypter].
 func (d *cryptoDecrypter) Public() crypto.PublicKey {
 	return d.keyPair.publicKey
 }
 
+// Decrypt implements [crypto.Decrypter].
 func (d *cryptoDecrypter) Decrypt(_ io.Reader, message []byte, opts crypto.DecrypterOpts) ([]byte, error) {
 	return d.keyPair.Decrypt(d.ctx, d.conn, d.session, message, opts)
 }

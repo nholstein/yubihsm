@@ -34,6 +34,71 @@ func loadReplayKey(t *testing.T, yubihsmConnectorLog, label string) (context.Con
 	return ctx, conn, session, private
 }
 
+// Ensure we implement the crypto quasi-standard.
+var _ cryptoPrivateKey = &KeyPair{}
+
+func TestCryptoPrivateKey(t *testing.T) {
+	t.Parallel()
+
+	_, conn, _, privP256 := loadReplayKey(t, "sign-p256.log", "p256")
+	conn.flush()
+	_, conn, _, privEd25519 := loadReplayKey(t, "sign-ed25519.log", "test-key")
+	conn.flush()
+	_, conn, _, privRsa := loadReplayKey(t, "sign-rsa2048-pss.log", "test-rsa2048")
+	conn.flush()
+
+	privs := []*KeyPair{privP256, privEd25519, privRsa}
+
+	for _, k := range privs {
+		for _, x := range privs {
+			if k == x && !k.Equal(x) {
+				t.Errorf("private key must equal itself")
+			}
+			if k != x && k.Equal(x) {
+				t.Errorf("distinct private keys must not be equal")
+			}
+		}
+	}
+
+	// We have three separate private key types, and it's too easy
+	// to mess up the crypto interface methods on these since it's
+	// all untyped methods which take [any].
+	//
+	// Run a stupid large combination of [Equal] methods across a
+	// combination of these types to ensure everything works as
+	// expected. Since the [KeyPair.Equal] method winds up calling
+	// [crypto.PrivateKey.Public] the [KeyPair.Public] method is
+	// tested as well.
+
+	signerP256 := privP256.AsCryptoSigner(nil, nil, nil)
+	cryptoP256 := signerP256.(cryptoPrivateKey)
+	if !cryptoP256.Equal(signerP256) ||
+		!cryptoP256.Equal(cryptoP256) ||
+		!cryptoP256.Equal(privP256) ||
+		!privP256.Equal(signerP256) {
+		t.Errorf("P256 signing key must equal P256 KeyPair")
+	}
+	for _, x := range []*KeyPair{privEd25519, privRsa} {
+		if cryptoP256.Equal(x) || x.Equal(signerP256) {
+			t.Errorf("P256 signing key must not be equal")
+		}
+	}
+
+	decrypterRsa := privRsa.AsCryptoDecrypter(nil, nil, nil)
+	cryptoRsa := decrypterRsa.(cryptoPrivateKey)
+	if !cryptoRsa.Equal(decrypterRsa) ||
+		!cryptoRsa.Equal(cryptoRsa) ||
+		!cryptoRsa.Equal(privRsa) ||
+		!privRsa.Equal(decrypterRsa) {
+		t.Errorf("RSA decrypting key must equal RSA KeyPair")
+	}
+	for _, x := range []*KeyPair{privP256, privEd25519} {
+		if cryptoRsa.Equal(x) || x.Equal(decrypterRsa) {
+			t.Errorf("RSA decrypting key must not be equal")
+		}
+	}
+}
+
 func TestKeyECDSASign(t *testing.T) {
 	t.Parallel()
 	digest := sha256.Sum256([]byte("test ECDSA message"))
@@ -63,9 +128,11 @@ func TestKeyECDSASign(t *testing.T) {
 		}
 		t.Logf("signature: %x", signature)
 
-		public := signer.Public().(*ecdsa.PublicKey)
-		if !ecdsa.VerifyASN1(public, digest[:], signature) {
-			t.Errorf("signature verification failed")
+		for _, p := range []any{private.Public(), signer.Public()} {
+			public := p.(*ecdsa.PublicKey)
+			if !ecdsa.VerifyASN1(public, digest[:], signature) {
+				t.Errorf("signature verification failed")
+			}
 		}
 	})
 
@@ -151,10 +218,12 @@ func testKeyRSA(t *testing.T, bits int) {
 			t.Errorf("signer.Sign(): %v", err)
 		}
 
-		public := signer.Public().(*rsa.PublicKey)
-		err = rsa.VerifyPKCS1v15(public, hash, hashed[:], signature)
-		if err != nil {
-			t.Errorf("rsa.VerifyPKCS1v15(): %v", err)
+		for _, p := range []any{private.Public(), signer.Public()} {
+			public := p.(*rsa.PublicKey)
+			err = rsa.VerifyPKCS1v15(public, hash, hashed[:], signature)
+			if err != nil {
+				t.Errorf("rsa.VerifyPKCS1v15(): %v", err)
+			}
 		}
 	})
 
@@ -178,10 +247,12 @@ func testKeyRSA(t *testing.T, bits int) {
 				t.Errorf("signer.Sign(): %v", err)
 			}
 
-			public := signer.Public().(*rsa.PublicKey)
-			err = rsa.VerifyPSS(public, hash, hashed[:], signature, &opts)
-			if err != nil {
-				t.Errorf("rsa.VerifyPSS(): %v", err)
+			for _, p := range []any{private.Public(), signer.Public()} {
+				public := p.(*rsa.PublicKey)
+				err = rsa.VerifyPSS(public, hash, hashed[:], signature, &opts)
+				if err != nil {
+					t.Errorf("rsa.VerifyPSS(): %v", err)
+				}
 			}
 		}
 	})
@@ -208,6 +279,10 @@ func testKeyRSA(t *testing.T, bits int) {
 		decrypter := private.AsCryptoDecrypter(ctx, conn, session)
 		public := decrypter.Public().(*rsa.PublicKey)
 		t.Logf("decrypter: %#v", decrypter)
+
+		if !public.Equal(private.Public()) {
+			t.Error("mixed up the RSA public keys")
+		}
 
 		return decrypter, public, rand
 	}

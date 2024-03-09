@@ -39,6 +39,12 @@ type replayConnector struct {
 	messages [][2][]byte
 }
 
+// flush all unsent messages to prevent a test from raising an error due
+// to un-replayed messages.
+func (r *replayConnector) flush() {
+	r.messages = nil
+}
+
 // loadReplayConnector parses the debug logs from yubihsm-connector to
 // allow replaying a series of command/response message exchanges.
 //
