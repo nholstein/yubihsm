@@ -23,9 +23,9 @@
 //
 // # YubiHSM2 Sessions
 //
-// All meaninful commands on a YubiHSM2 are sent within the context of a
-// [YubiHSM2 session]. Each session is encrypted and authenticated via a
-// symmetric authentication key.
+// All meaningful commands on a YubiHSM2 are sent within the context of
+// a [YubiHSM2 session]. Each session is encrypted and authenticated via
+// a symmetric authentication key.
 //
 // An out-of-box YubiHSM2 is configured with a default authentication key
 // derived from the password "password". You _must_ replace the default

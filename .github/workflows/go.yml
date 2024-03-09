@@ -1,0 +1,29 @@
+name: Go
+
+on:
+  push:
+    branches: ['master']
+  pull_request:
+    branches: ['master']
+
+jobs:
+  build:
+    runs-on: 'ubuntu-latest'
+    steps:
+      - uses: 'actions/checkout@v4'
+
+      - name: 'Set up Go'
+        uses: 'actions/setup-go@v5'
+        with:
+          # With Go 1.22's toolchain support enabled Go will choose the
+          # version from go.mod. Just set a compatible version here.
+          go-version: '^1.22.1'
+
+      - name: 'Test'
+        run: 'go test -cover -race ./...'
+
+      - name: 'Lint'
+        uses: 'golangci/golangci-lint-action@v4'
+        with:
+          version: 'v1.56.2'
+          skip-pkg-cache: true
