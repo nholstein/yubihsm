@@ -379,7 +379,7 @@ func (s *Session) getPublicKey(ctx context.Context, conn Connector, keyID Object
 // [KeyPair.Decrypt] will work.
 //
 // [Effective Capabilities]: https://developers.yubico.com/YubiHSM2/Concepts/Effective_Capabilities.html
-func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string) (KeyPair, error) {
+func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string) (*KeyPair, error) {
 	cmd := yubihsm.ListObjectsCommand{
 		yubihsm.TypeFilter(yubihsm.TypeAsymmetricKey),
 		yubihsm.LabelFilter(label),
@@ -388,24 +388,24 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 	err := s.sendCommand(ctx, conn, false, cmd, &rsp)
 	switch {
 	case err != nil:
-		return KeyPair{}, err
+		return nil, err
 
 	case len(rsp) == 0:
-		return KeyPair{}, fmt.Errorf("could not find asymmetric-key labeled %q", label)
+		return nil, fmt.Errorf("could not find asymmetric-key labeled %q", label)
 
 	case len(rsp) > 1:
 		// This should be impossible, keys are identified via
 		// the (type, ID) pair.
-		return KeyPair{}, fmt.Errorf("HSM error: found %d asymmetric-keys labeled %q", len(rsp), label)
+		return nil, fmt.Errorf("HSM error: found %d asymmetric-keys labeled %q", len(rsp), label)
 	}
 
 	keyID := rsp[0].Object
 	public, err := s.getPublicKey(ctx, conn, keyID)
 	if err != nil {
-		return KeyPair{}, err
+		return nil, err
 	}
 
-	return KeyPair{public, keyID}, nil
+	return &KeyPair{public, keyID}, nil
 }
 
 func calculateCMAC(key, chaining SessionKey, cmd yubihsm.CommandID, session byte, contents []byte) (k SessionKey) {

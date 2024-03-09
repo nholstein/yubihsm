@@ -23,7 +23,7 @@ import (
 // loadReplayKey creates a [Session] and [KeyPair] using replayed
 // yubihsm-connector logs. The returned session is automatically
 // authenticated and key loaded by label.
-func loadReplayKey(t *testing.T, yubihsmConnectorLog, label string) (context.Context, *replayConnector, *Session, KeyPair) {
+func loadReplayKey(t *testing.T, yubihsmConnectorLog, label string) (context.Context, *replayConnector, *Session, *KeyPair) {
 	t.Helper()
 	ctx, conn, session := loadReplaySession(t, yubihsmConnectorLog)
 	private, err := session.LoadKeyPair(ctx, conn, label)
@@ -348,7 +348,7 @@ func TestLoadKeyPairErrors(t *testing.T) {
 		t.Helper()
 		if err == nil {
 			t.Errorf("should have failed")
-		} else if key.Public() != nil {
+		} else if key != nil {
 			t.Errorf("public key should be nil")
 		}
 	}
@@ -357,7 +357,7 @@ func TestLoadKeyPairErrors(t *testing.T) {
 		t.Parallel()
 		ctx, conn, session := loadSessionResponse(t, yubihsm.CommandListObjects)
 		key, err := session.LoadKeyPair(ctx, conn, "not-there")
-		checkNoKey(t, &key, err)
+		checkNoKey(t, key, err)
 	})
 
 	t.Run("multiple keys found", func(t *testing.T) {
@@ -367,7 +367,7 @@ func TestLoadKeyPairErrors(t *testing.T) {
 			0x56, 0x78, uint8(yubihsm.TypeAsymmetricKey), 1,
 		)
 		key, err := session.LoadKeyPair(ctx, conn, "too-many")
-		checkNoKey(t, &key, err)
+		checkNoKey(t, key, err)
 	})
 
 	t.Run("get key fails", func(t *testing.T) {
@@ -378,7 +378,7 @@ func TestLoadKeyPairErrors(t *testing.T) {
 			makeSessionResponse(0x7f, 9),
 		)
 		key, err := session.LoadKeyPair(ctx, conn, "get-fails")
-		checkNoKey(t, &key, err)
+		checkNoKey(t, key, err)
 	})
 }
 
@@ -448,7 +448,7 @@ func TestKeyPairCoverage(t *testing.T) {
 		}
 
 		key, err := session.LoadKeyPair(ctx, conn, "P-256")
-		if err == nil || key.Public() != nil {
+		if err == nil || key != nil {
 			t.Errorf("session.LoadKeyPair() should have failed on an emptied message log")
 		}
 	})
