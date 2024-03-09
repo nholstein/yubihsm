@@ -241,9 +241,9 @@ func TestSessionGetEd25519PublicKey(t *testing.T) {
 	testSendPing(ctx, t, conn, session)
 
 	keyID := ObjectID(0xb37e)
-	pubKey, err := session.GetPublicKey(ctx, conn, keyID)
+	pubKey, err := session.getPublicKey(ctx, conn, keyID)
 	if err != nil {
-		t.Fatalf("session.GetPublicKey(%#x): %v", keyID, err)
+		t.Fatalf("session.getPublicKey(%#x): %v", keyID, err)
 	}
 	t.Logf("pubKey: %v#", pubKey)
 }
@@ -254,9 +254,9 @@ func TestSessionGetP256PublicKey(t *testing.T) {
 	testSendPing(ctx, t, conn, session)
 
 	keyID := ObjectID(0xe256)
-	pubKey, err := session.GetPublicKey(ctx, conn, keyID)
+	pubKey, err := session.getPublicKey(ctx, conn, keyID)
 	if err != nil {
-		t.Fatalf("session.GetPublicKey(%#x): %v", keyID, err)
+		t.Fatalf("session.getPublicKey(%#x): %v", keyID, err)
 	}
 	t.Logf("pubKey: %#v", pubKey)
 }
@@ -425,7 +425,7 @@ func TestSessionLocking(t *testing.T) {
 		func() { _ = session.Ping(ctx, conn, 1, 2, 3, 4) },
 		func() { _ = session.Close(ctx, conn) },
 		func() { _ = session.Authenticate(ctx, conn) },
-		func() { _, _ = session.GetPublicKey(ctx, conn, 0x1234) },
+		func() { _, _ = session.getPublicKey(ctx, conn, 0x1234) },
 		func() { _, _ = session.LoadKeyPair(ctx, conn, "not-a-valid-label") },
 		func() { _, _ = session.GetDeviceInfo(ctx, conn) },
 	} {

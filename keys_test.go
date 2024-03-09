@@ -442,9 +442,9 @@ func TestKeyPairCoverage(t *testing.T) {
 			t.Fatalf("private.Sign(): %v", err)
 		}
 
-		public, err := session.GetPublicKey(ctx, conn, 256)
+		public, err := session.getPublicKey(ctx, conn, 256)
 		if err == nil || public != nil {
-			t.Errorf("session.GetPublicKey() should have failed on an emptied message log")
+			t.Errorf("session.getPublicKey() should have failed on an emptied message log")
 		}
 
 		key, err := session.LoadKeyPair(ctx, conn, "P-256")

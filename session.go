@@ -352,12 +352,12 @@ func (s *Session) Ping(ctx context.Context, conn Connector, data ...byte) error 
 	return nil
 }
 
-// GetPublicKey retrieves the public half of an asymmetric keypair in
+// getPublicKey retrieves the public half of an asymmetric keypair in
 // the HSM.
 //
 // The return public key will be one of an [*ecdsa.PublicKey],
 // [ed25519.PublicKey], or an [*rsa.PublicKey].
-func (s *Session) GetPublicKey(ctx context.Context, conn Connector, keyID ObjectID) (PublicKey, error) { //nolint:ireturn
+func (s *Session) getPublicKey(ctx context.Context, conn Connector, keyID ObjectID) (yubihsm.PublicKey, error) { //nolint:ireturn
 	cmd := yubihsm.GetPublicKeyCommand{
 		KeyID: keyID,
 	}
@@ -400,7 +400,7 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 	}
 
 	keyID := rsp[0].Object
-	public, err := s.GetPublicKey(ctx, conn, keyID)
+	public, err := s.getPublicKey(ctx, conn, keyID)
 	if err != nil {
 		return KeyPair{}, err
 	}
