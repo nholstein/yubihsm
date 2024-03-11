@@ -433,6 +433,13 @@ func TestSessionRekey(t *testing.T) {
 	})
 }
 
+func TestPasswordAuthentication(t *testing.T) {
+	withPassword := WithPassword("password")
+	ctx, conn, options := loadReplay(t, "session-just-authenticate.log", withPassword)
+	var session Session
+	testAuthenticate(ctx, t, conn, &session, options...)
+}
+
 func TestSessionLocking(t *testing.T) {
 	t.Parallel()
 	ctx, conn, session := loadReplaySession(t, "session-open-close.log")

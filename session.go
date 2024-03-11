@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/aead/cmac"
+	"golang.org/x/crypto/pbkdf2"
 
 	yubihsm "github.com/nholstein/yubihsm/internal"
 )
@@ -32,6 +34,7 @@ const (
 	// before rekeying.
 	maxMessagesBeforeRekey = 10_000
 
+	pbkdfIterations           = 10_000
 	defaultAuthKeyID ObjectID = 1
 
 	// sessionHeaderLength is command ID, length, session ID.
@@ -102,15 +105,33 @@ func (c *authConfig) apply(options []AuthenticationOption) {
 	}
 }
 
+func deriveAuthenticationKeys(password string) (encryptionKey, macKey SessionKey) {
+	l := len(encryptionKey) + len(macKey)
+	key := pbkdf2.Key([]byte(password), []byte("Yubico"), pbkdfIterations, l, sha256.New)
+	l = copy(encryptionKey[:], key)
+	copy(macKey[:], key[l:])
+	return
+}
+
 // WithAuthenticationKeys sets the authentication key of a session. If
 // left unspecified the session uses keys derived from the default HSM
 // password.
+//
+// At most one of [WithPassword] or [WithAuthenticationKeys] may be used.
 func WithAuthenticationKeys(encryptionKey, macKey SessionKey) AuthenticationOption {
 	return func(c *authConfig) {
 		c.encKey = encryptionKey
 		c.macKey = macKey
 		c.hasKeys = true
 	}
+}
+
+// WithPassword sets the authentication password of a session. If left
+// unspecified the session uses the default HSM password.
+//
+// At most one of [WithPassword] or [WithAuthenticationKeys] may be used.
+func WithPassword(password string) AuthenticationOption {
+	return WithAuthenticationKeys(deriveAuthenticationKeys(password))
 }
 
 // WithAuthenticationKeyID sets the authentication key ID of a session.
