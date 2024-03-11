@@ -82,8 +82,9 @@ func loadReplaySession(t T, yubihsmConnectorLog string, options ...Authenticatio
 }
 
 func replayHostChallenge(hostChallenge [8]byte, options ...AuthenticationOption) []AuthenticationOption {
-	return append(options, func(c *authConfig) {
+	return append(options, func(c *authConfig) error {
 		c.rand = bytes.NewReader(hostChallenge[:])
+		return nil
 	})
 }
 
@@ -175,8 +176,9 @@ func TestSessionAuthenticationFails(t *testing.T) {
 	}
 
 	var session Session
-	err := session.Authenticate(context.Background(), nil, func(c *authConfig) {
+	err := session.Authenticate(context.Background(), nil, func(c *authConfig) error {
 		c.rand = strings.NewReader("short")
+		return nil
 	})
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Errorf("expected short read: %v", err)
@@ -437,6 +439,20 @@ func TestPasswordAuthentication(t *testing.T) {
 	withPassword := WithPassword("password")
 	ctx, conn, options := loadReplay(t, "session-just-authenticate.log", withPassword)
 	var session Session
+	testAuthenticate(ctx, t, conn, &session, options...)
+}
+
+func TestBadAuthenticationConfig(t *testing.T) {
+	withPassword := WithPassword("password")
+	ctx, conn, options := loadReplay(t, "session-just-authenticate.log", withPassword)
+	var session Session
+
+	err := session.Authenticate(ctx, conn, append(options, WithPassword("foobar"))...)
+	if err == nil {
+		t.Error("should have rejected setting password multiple times")
+	}
+
+	t.Log("confirm authentication otherwise succeeds...")
 	testAuthenticate(ctx, t, conn, &session, options...)
 }
 

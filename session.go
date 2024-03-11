@@ -82,7 +82,7 @@ const (
 )
 
 // AuthenticationOption configures an HSM [Session].
-type AuthenticationOption func(*authConfig)
+type AuthenticationOption func(*authConfig) error
 
 type authConfig struct {
 	rand    io.Reader
@@ -99,10 +99,12 @@ func (c *authConfig) authKeys() (SessionKey, SessionKey) {
 	return defaultEncryptionKey(), defaultMACKey()
 }
 
-func (c *authConfig) apply(options []AuthenticationOption) {
+func (c *authConfig) apply(options []AuthenticationOption) error {
+	var err error
 	for _, option := range options {
-		option(c)
+		err = errors.Join(err, option(c))
 	}
+	return err
 }
 
 func deriveAuthenticationKeys(password string) (encryptionKey, macKey SessionKey) {
@@ -119,10 +121,15 @@ func deriveAuthenticationKeys(password string) (encryptionKey, macKey SessionKey
 //
 // At most one of [WithPassword] or [WithAuthenticationKeys] may be used.
 func WithAuthenticationKeys(encryptionKey, macKey SessionKey) AuthenticationOption {
-	return func(c *authConfig) {
+	return func(c *authConfig) error {
+		if c.hasKeys {
+			return errors.New("authentication keys/password specified multiple times")
+		}
+
 		c.encKey = encryptionKey
 		c.macKey = macKey
 		c.hasKeys = true
+		return nil
 	}
 }
 
@@ -137,8 +144,9 @@ func WithPassword(password string) AuthenticationOption {
 // WithAuthenticationKeyID sets the authentication key ID of a session.
 // If left unspecified the default HSM ID 1 is used.
 func WithAuthenticationKeyID(keyID ObjectID) AuthenticationOption {
-	return func(c *authConfig) {
+	return func(c *authConfig) error {
 		c.keyID = keyID
+		return nil
 	}
 }
 
@@ -263,7 +271,10 @@ func (s *Session) Authenticate(ctx context.Context, conn Connector, options ...A
 	s.session = session{}
 
 	var config authConfig
-	config.apply(options)
+	err := config.apply(options)
+	if err != nil {
+		return err
+	}
 
 	createSessionCmd, err := config.createSession()
 	if err != nil {
