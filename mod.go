@@ -55,7 +55,7 @@
 // APIs, and can be used wherever a [crypto.Signer] or [crypto.Deriver]
 // is used.
 //
-// ## Supported key algorithms
+// # Supported key algorithms
 //
 // Only asymmetric key pairs (RSA, ECDSA, Ed25519) are supported. Any of
 // these may be used to generate a signature. Only an RSA key can be used
