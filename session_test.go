@@ -82,7 +82,7 @@ func loadReplaySession(t T, yubihsmConnectorLog string, options ...Authenticatio
 }
 
 func replayHostChallenge(hostChallenge [8]byte, options ...AuthenticationOption) []AuthenticationOption {
-	return append(options, func(c *authConfig) error {
+	return append(options, func(_ *Session, c *authConfig) error {
 		c.rand = bytes.NewReader(hostChallenge[:])
 		return nil
 	})
@@ -176,7 +176,7 @@ func TestSessionAuthenticationFails(t *testing.T) {
 	}
 
 	var session Session
-	err := session.Authenticate(context.Background(), nil, func(c *authConfig) error {
+	err := session.Authenticate(context.Background(), nil, func(_ *Session, c *authConfig) error {
 		c.rand = strings.NewReader("short")
 		return nil
 	})
