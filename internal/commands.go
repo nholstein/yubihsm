@@ -310,13 +310,13 @@ func (l ListObjectsCommand) ID() CommandID {
 }
 
 func (l ListObjectsCommand) Serialize(out []byte) []byte {
-	var filters []byte
+	list := makeCmd(out, l, 0)
 	for _, filter := range l {
-		filters = filter(filters)
+		list = filter(list)
 	}
 
-	// TODO: this can be optimized
-	return Append(makeCmd(out, l, len(filters)), filters)
+	Put16(list[len(out)+1:], len(list)-len(out)-HeaderLength)
+	return list
 }
 
 type listObjectsResponse struct {
