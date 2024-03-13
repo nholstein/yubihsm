@@ -2,6 +2,7 @@ package yubihsm
 
 import (
 	"crypto/sha256"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -67,12 +68,12 @@ func defaultMACKey() (key SessionKey) {
 }
 
 func TestCheckErr(t *testing.T) {
-	slice, err := checkErr([]byte{1, 2}, fmt.Errorf("error"))
+	slice, err := checkErr([]byte{1, 2}, errors.New("error"))
 	if err == nil || slice != nil {
 		t.Errorf("should return (nil, error)")
 	}
 
-	str, err := checkErr("foo", fmt.Errorf("error"))
+	str, err := checkErr("foo", errors.New("error"))
 	if err == nil || str != "" {
 		t.Errorf("should return (\"\", error)")
 	}

@@ -168,16 +168,6 @@ func (r *replayConnector) findHostChallenges(t T) [][8]byte {
 	return hostChallenges
 }
 
-func (r *replayConnector) findHostChallenge(t T) [8]byte {
-	hostChallenges := r.findHostChallenges(t)
-	if len(hostChallenges) == 0 {
-		t.Fatalf("could not recover CreateSession.HostChallenge in replayConnector messages")
-	} else if len(hostChallenges) > 1 {
-		t.Fatalf("expected a single host challenge, found %d", len(hostChallenges))
-	}
-	return hostChallenges[0]
-}
-
 func (r *replayConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, error) {
 	select {
 	case <-ctx.Done():
