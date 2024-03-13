@@ -5,6 +5,7 @@ package yubihsm
 import (
 	"errors"
 	"fmt"
+	"math/bits"
 )
 
 //go:generate go run golang.org/x/tools/cmd/stringer -linecomment -output=protocol_string.go -type=AlgorithmID,CommandID,Error,TypeID
@@ -251,12 +252,16 @@ func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 		return parseError(buf)
 
 	case rspCmdID != CommandResponse|cmdID:
-
 		return fmt.Errorf("received a response for a different command: %#02x", int(rspCmdID))
 	}
 
-	// TODO: check padding?
-	// We currently just fuzzily lop the padding off the end.
+	var padding uint
+	for i, p := range buf[HeaderLength+rspLen:] {
+		padding |= uint(p) ^ (uint(i)-1)>>(bits.UintSize-1)<<(8-1) //nolint:gomnd
+	}
+	if padding != 0 {
+		return errors.New("invalid response message padding")
+	}
 
 	return rsp.Parse(buf[HeaderLength : HeaderLength+rspLen])
 }
