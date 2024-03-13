@@ -13,12 +13,12 @@ import (
 // message has an invalid length.
 type InvalidLengthError struct{}
 
-func (*InvalidLengthError) Error() string {
+func (InvalidLengthError) Error() string {
 	return "invalid response length"
 }
 
 func badLength() error {
-	return &InvalidLengthError{}
+	return InvalidLengthError{}
 }
 
 // ObjectID identifies a key or other object stored on a YubiHSM2.
