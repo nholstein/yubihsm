@@ -347,6 +347,9 @@ func (s *Session) encryptResponse(response []byte, trim int) []byte {
 	padding := aes.BlockSize - len(out[4:])%aes.BlockSize
 	out = append(out, pad[:padding+macLength]...)
 
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	yubihsm.Put8(out[0:], yubihsm.ResponseSessionMessage)
 	yubihsm.Put16(out[1:], len(out)-3)
 	yubihsm.Put8(out[3:], s.sessionID)
