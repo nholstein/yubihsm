@@ -607,7 +607,6 @@ func (d *decryptResponse) decryptSessionResponse(message []byte) ([]byte, error)
 		return nil, ErrInvalidMessage
 
 	case message[yubihsm.HeaderLength] != d.sessionID:
-		// TODO: need to synchronize across sessions!
 		return nil, fmt.Errorf("session %d received response for session %d", d.sessionID, message[3])
 	}
 
