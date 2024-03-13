@@ -56,7 +56,7 @@ func testAuthenticate(ctx context.Context, t T, conn Connector, s *Session, opti
 
 // loadReplaySession creates a [Session] using replayed yubihsm-connector
 // logs. The returned session is automatically authenticated.
-func loadReplaySession(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, testConnector, *Session) {
+func loadReplaySession(t T, yubihsmConnectorLog string, options ...AuthenticationOption) (context.Context, testConnector, *Session, []AuthenticationOption) {
 	t.Helper()
 
 	if *record {
@@ -65,25 +65,30 @@ func loadReplaySession(t T, yubihsmConnectorLog string, options ...Authenticatio
 		conn.cleanup(t, yubihsmConnectorLog)
 
 		var session Session
-		err := session.Authenticate(ctx, conn)
+		err := session.Authenticate(ctx, conn, options...)
 		if err != nil {
 			t.Errorf("sessions.Authenticate(): %v", err)
 		} else {
 			t.Logf("session authenticated with SessionID: %d", session.sessionID)
 		}
 
-		return ctx, conn, &session
+		return ctx, conn, &session, options
 	}
 
 	ctx, conn, options := loadReplay(t, yubihsmConnectorLog, options...)
 	var session Session
 	testAuthenticate(ctx, t, conn, &session, options...)
-	return ctx, conn, &session
+	return ctx, conn, &session, options
 }
 
-func replayHostChallenge(hostChallenge [8]byte, options ...AuthenticationOption) []AuthenticationOption {
+func replayHostChallenges(hostChallenges [][8]byte, options ...AuthenticationOption) []AuthenticationOption {
+	var hostChallenge bytes.Buffer
+	for _, c := range hostChallenges {
+		_, _ = hostChallenge.Write(c[:])
+	}
+
 	return append(options, func(_ *Session, c *authConfig) error {
-		c.rand = bytes.NewReader(hostChallenge[:])
+		c.rand = &hostChallenge
 		return nil
 	})
 }
@@ -92,8 +97,8 @@ func loadReplay(t T, yubihsmConnectorLog string, options ...AuthenticationOption
 	t.Helper()
 	ctx := testingContext(t)
 	conn := loadReplayConnector(t, yubihsmConnectorLog)
-	hostChallenge := conn.findHostChallenge(t)
-	return ctx, conn, replayHostChallenge(hostChallenge, options...)
+	hostChallenges := conn.findHostChallenges(t)
+	return ctx, conn, replayHostChallenges(hostChallenges, options...)
 }
 
 func loadMultiReplay(t T, yubihsmConnectorLog string, expect int, options ...AuthenticationOption) (context.Context, Connector, []Session) {
@@ -123,7 +128,7 @@ func loadMultiReplay(t T, yubihsmConnectorLog string, expect int, options ...Aut
 
 	sessions := make([]Session, len(hostChallenges))
 	for i, hostChallenge := range hostChallenges {
-		testAuthenticate(ctx, t, conn, &sessions[i], replayHostChallenge(hostChallenge, options...)...)
+		testAuthenticate(ctx, t, conn, &sessions[i], replayHostChallenges([][8]byte{hostChallenge}, options...)...)
 	}
 
 	if expect >= 0 && expect != len(hostChallenges) {
@@ -152,7 +157,7 @@ func testSessionClose(ctx context.Context, t *testing.T, conn Connector, session
 
 func TestSessionAuthenticateSession(t *testing.T) {
 	t.Parallel()
-	ctx, conn, session := loadReplaySession(t, "session-open-close.log")
+	ctx, conn, session, _ := loadReplaySession(t, "session-open-close.log")
 	testSendPing(ctx, t, conn, session)
 	testSessionClose(ctx, t, conn, session)
 }
@@ -233,7 +238,7 @@ func TestSessionConcurrent(t *testing.T) {
 
 func TestSessionBadMAC(t *testing.T) {
 	t.Parallel()
-	ctx, conn, session := loadReplaySession(t, "session-bad-mac.log")
+	ctx, conn, session, _ := loadReplaySession(t, "session-bad-mac.log")
 	err := session.Ping(ctx, conn, 0xff)
 	if err == nil {
 		t.Errorf("response with corrupted MAC should have failed")
@@ -246,7 +251,7 @@ func TestSessionCustomKeyPassword(t *testing.T) {
 	var encryptionKey, macKey SessionKey
 	copy(macKey[:], foobar[copy(encryptionKey[:], foobar):])
 
-	ctx, conn, session := loadReplaySession(t, "password-foobar.log",
+	ctx, conn, session, _ := loadReplaySession(t, "password-foobar.log",
 		WithAuthenticationKeyID(123),
 		WithAuthenticationKeys(encryptionKey, macKey),
 	)
@@ -259,7 +264,7 @@ func TestSessionCustomKeyPassword(t *testing.T) {
 
 func TestSessionGetEd25519PublicKey(t *testing.T) {
 	t.Parallel()
-	ctx, conn, session := loadReplaySession(t, "get-ed25519-pubkey.log")
+	ctx, conn, session, _ := loadReplaySession(t, "get-ed25519-pubkey.log")
 	testSendPing(ctx, t, conn, session)
 
 	keyID := ObjectID(0xb37e)
@@ -272,7 +277,7 @@ func TestSessionGetEd25519PublicKey(t *testing.T) {
 
 func TestSessionGetP256PublicKey(t *testing.T) {
 	t.Parallel()
-	ctx, conn, session := loadReplaySession(t, "get-p256-pubkey.log")
+	ctx, conn, session, _ := loadReplaySession(t, "get-p256-pubkey.log")
 	testSendPing(ctx, t, conn, session)
 
 	keyID := ObjectID(0xe256)
@@ -287,7 +292,7 @@ func TestSessionFiveDeviceInfos(t *testing.T) {
 	t.Parallel()
 	ctx := testingContext(t)
 	conn := loadReplayConnector(t, "five-device-infos.log")
-	hostChallenge := conn.findHostChallenge(t)
+	hostChallenges := conn.findHostChallenges(t)
 
 	var session Session
 	checkDeviceInfo := func(trusted bool) {
@@ -308,7 +313,7 @@ func TestSessionFiveDeviceInfos(t *testing.T) {
 
 	checkDeviceInfo(false)
 
-	testAuthenticate(ctx, t, conn, &session, replayHostChallenge(hostChallenge)...)
+	testAuthenticate(ctx, t, conn, &session, replayHostChallenges(hostChallenges)...)
 
 	for i := 0; i < 5; i++ {
 		checkDeviceInfo(true)
@@ -384,7 +389,7 @@ func makeSessionResponse(cmd yubihsm.CommandID, msg ...byte) []byte {
 }
 
 func loadSessionResponses(t T, responses ...[]byte) (context.Context, Connector, *Session) {
-	ctx, _, session := loadReplaySession(t, "session-just-authenticate.log")
+	ctx, _, session, _ := loadReplaySession(t, "session-just-authenticate.log")
 	return ctx, &sessionResponse{session, responses}, session
 }
 
@@ -429,8 +434,8 @@ func TestSessionRekey(t *testing.T) {
 
 	t.Run("reauthenticate", func(t *testing.T) {
 		conn := loadReplayConnector(t, "session-open-close.log")
-		hostChallenge := conn.findHostChallenge(t)
-		testAuthenticate(ctx, t, conn, session, replayHostChallenge(hostChallenge)...)
+		hostChallenges := conn.findHostChallenges(t)
+		testAuthenticate(ctx, t, conn, session, replayHostChallenges(hostChallenges)...)
 
 		t.Log("ping and close should succeed on new session authentication")
 		testSendPing(ctx, t, conn, session)
@@ -461,7 +466,7 @@ func TestBadAuthenticationConfig(t *testing.T) {
 
 func TestSessionLocking(t *testing.T) {
 	t.Parallel()
-	ctx, conn, session := loadReplaySession(t, "session-open-close.log")
+	ctx, conn, session, _ := loadReplaySession(t, "session-open-close.log")
 	testSendPing(ctx, t, conn, session)
 	testSessionClose(ctx, t, conn, session)
 

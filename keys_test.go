@@ -25,7 +25,7 @@ import (
 // authenticated and key loaded by label.
 func loadReplayKey(t *testing.T, yubihsmConnectorLog, label string) (context.Context, testConnector, *Session, *KeyPair) {
 	t.Helper()
-	ctx, conn, session := loadReplaySession(t, yubihsmConnectorLog)
+	ctx, conn, session, _ := loadReplaySession(t, yubihsmConnectorLog)
 	private, err := session.LoadKeyPair(ctx, conn, label)
 	if err != nil {
 		t.Fatalf("session.LoadKeyPair(%q): %v", label, err)
