@@ -1,6 +1,7 @@
 package yubihsm
 
 import (
+	"cmp"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -234,7 +235,7 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 	case *rsa.OAEPOptions:
 		return k.decrypt(ctx, conn, session, &yubihsm.DecryptOAEPCommand{
 			KeyID:      k.keyID,
-			MGF1:       orDefault(o.MGFHash, o.Hash),
+			MGF1:       cmp.Or(o.MGFHash, o.Hash),
 			LabelHash:  o.Hash,
 			CipherText: ciphertext,
 			Label:      o.Label,

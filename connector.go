@@ -2,6 +2,7 @@ package yubihsm
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -98,8 +99,8 @@ func WithConnectorURL(url string) HTTPOption {
 
 // SendCommand transmits the command and returns the YubiHSM2's response.
 func (h *HTTPConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, error) {
-	client := orDefault(h.client, http.DefaultClient)
-	url := orDefault(h.url, "http://localhost:12345/connector/api")
+	client := cmp.Or(h.client, http.DefaultClient)
+	url := cmp.Or(h.url, "http://localhost:12345/connector/api")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(cmd))
 	if err != nil {

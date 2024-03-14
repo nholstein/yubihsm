@@ -2,6 +2,7 @@ package yubihsm
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -180,9 +181,9 @@ type session struct {
 // [Create Session command]: https://developers.yubico.com/YubiHSM2/Commands/Create_Session.html
 func (c *authConfig) createSession() (yubihsm.CreateSessionCommand, error) {
 	cmd := yubihsm.CreateSessionCommand{
-		KeySetID: orDefault(c.keyID, defaultAuthKeyID),
+		KeySetID: cmp.Or(c.keyID, defaultAuthKeyID),
 	}
-	_, err := io.ReadFull(orDefault(c.rand, rand.Reader), cmd.HostChallenge[:])
+	_, err := io.ReadFull(cmp.Or(c.rand, rand.Reader), cmd.HostChallenge[:])
 	return cmd, err
 }
 

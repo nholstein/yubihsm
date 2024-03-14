@@ -78,17 +78,6 @@
 // [What is YubiHSM2]: https://developers.yubico.com/YubiHSM2/
 package yubihsm
 
-// orDefault returns the provided [defaultV] if [value] is zero.
-//
-// Placed here because vim-go currently chokes on generics.
-func orDefault[V comparable](value, defaultV V) V { //nolint:ireturn
-	var zero V
-	if value != zero {
-		return value
-	}
-	return defaultV
-}
-
 // checkErr squelches a return value if an error is given.
 func checkErr[V any](value V, err error) (V, error) { //nolint:ireturn
 	if err != nil {
