@@ -1,4 +1,4 @@
-package yubihsm
+package yubihsm_test
 
 import (
 	"bufio"
@@ -14,7 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	yubihsm "github.com/nholstein/yubihsm/internal"
+	"github.com/nholstein/yubihsm"
+	internal "github.com/nholstein/yubihsm/internal"
 )
 
 //go:embed testdata/*.log
@@ -23,7 +24,7 @@ var testdataLogs embed.FS
 var matchConnectorLogLine = regexp.MustCompile(`^DEBU\[\d{4}\]\susb endpoint (\w+).*buf="\[((\d|\s)*)\]"`)
 
 type testConnector interface {
-	Connector
+	yubihsm.Connector
 	flush()
 }
 
@@ -157,7 +158,7 @@ func parseLoggedBytes(match []byte) (message []byte) {
 func (r *replayConnector) findHostChallenges(t T) [][8]byte {
 	var hostChallenges [][8]byte
 	for _, m := range r.messages {
-		if m[0][0] == byte(yubihsm.CommandCreateSession) &&
+		if m[0][0] == byte(internal.CommandCreateSession) &&
 			len(m[0]) == 1+2+2+8 {
 			var hostChallenge [8]byte
 			copy(hostChallenge[:], m[0][5:13])
@@ -192,12 +193,12 @@ func (r *replayConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, 
 type logMessagesConnector struct {
 	T
 	msgs [][2][]byte
-	http HTTPConnector
+	http yubihsm.HTTPConnector
 }
 
 func (l *logMessagesConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, error) {
 	rsp, err := l.http.SendCommand(ctx, cmd)
-	l.msgs = append(l.msgs, [2][]byte{yubihsm.Append(nil, cmd), yubihsm.Append(nil, rsp)})
+	l.msgs = append(l.msgs, [2][]byte{internal.Append(nil, cmd), internal.Append(nil, rsp)})
 	l.Logf("recorded:")
 	l.Logf("    -> %x", cmd)
 	l.Logf("    <- %x", rsp)

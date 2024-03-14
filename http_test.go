@@ -1,4 +1,4 @@
-package yubihsm
+package yubihsm_test
 
 import (
 	"context"
@@ -9,9 +9,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/nholstein/yubihsm"
 )
 
-func httpServerReplay(t *testing.T, log string, options ...AuthenticationOption) (context.Context, *httptest.Server, []AuthenticationOption) {
+func httpServerReplay(t *testing.T, log string, options ...yubihsm.AuthenticationOption) (context.Context, *httptest.Server, []yubihsm.AuthenticationOption) {
 	ctx, conn, options := loadReplay(t, log, options...)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/foobar", func(w http.ResponseWriter, req *http.Request) {
@@ -48,12 +50,12 @@ func TestHTTPConnector(t *testing.T) {
 	t.Parallel()
 
 	ctx, server, options := httpServerReplay(t, "session-open-close.log")
-	conn := NewHTTPConnector(
-		WithHTTPClient(server.Client()),
-		WithConnectorURL(server.URL+"/foobar"),
+	conn := yubihsm.NewHTTPConnector(
+		yubihsm.WithHTTPClient(server.Client()),
+		yubihsm.WithConnectorURL(server.URL+"/foobar"),
 	)
 
-	var session Session
+	var session yubihsm.Session
 	testAuthenticate(ctx, t, &conn, &session, options...)
 	testSendPing(ctx, t, &conn, &session)
 	testSessionClose(ctx, t, &conn, &session)
@@ -72,8 +74,8 @@ func TestHTTPConnectorErrors(t *testing.T) {
 		t.Parallel()
 
 		ctx := testingContext(t)
-		conn := NewHTTPConnector(WithConnectorURL("http://localhost\n:12345/"))
-		var session Session
+		conn := yubihsm.NewHTTPConnector(yubihsm.WithConnectorURL("http://localhost\n:12345/"))
+		var session yubihsm.Session
 		_, err := session.GetDeviceInfo(ctx, &conn)
 		var uErr *url.Error
 		if !errors.As(err, &uErr) {
@@ -89,9 +91,9 @@ func TestHTTPConnectorErrors(t *testing.T) {
 		client := http.Client{
 			Transport: &errTransport{wompWompWaaaah},
 		}
-		conn := NewHTTPConnector(WithHTTPClient(&client))
+		conn := yubihsm.NewHTTPConnector(yubihsm.WithHTTPClient(&client))
 
-		var session Session
+		var session yubihsm.Session
 		_, err := session.GetDeviceInfo(ctx, &conn)
 		if !errors.Is(err, wompWompWaaaah) {
 			t.Errorf("should have received the transport error")
@@ -105,12 +107,12 @@ func TestHTTPConnectorErrors(t *testing.T) {
 		server := httptest.NewServer(http.NotFoundHandler())
 		t.Cleanup(server.Close)
 
-		conn := NewHTTPConnector(
-			WithHTTPClient(server.Client()),
-			WithConnectorURL(server.URL+"/not-here"),
+		conn := yubihsm.NewHTTPConnector(
+			yubihsm.WithHTTPClient(server.Client()),
+			yubihsm.WithConnectorURL(server.URL+"/not-here"),
 		)
 
-		var session Session
+		var session yubihsm.Session
 		err := session.Authenticate(ctx, &conn)
 		if !strings.HasSuffix(err.Error(), "404 Not Found") {
 			t.Errorf("expected not-found, got: %v", err)
