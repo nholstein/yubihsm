@@ -34,7 +34,7 @@ func makeObjectDataCmd(out []byte, c Command, keyID ObjectID, data []byte) []byt
 	return Append(Append16(out, keyID), data)
 }
 
-func mgf1AlgorithmID(mgf1 crypto.Hash) AlgorithmID {
+func Mgf1AlgorithmID(mgf1 crypto.Hash) AlgorithmID {
 	//nolint:exhaustive
 	switch mgf1 {
 	case crypto.SHA1:
@@ -51,9 +51,9 @@ func mgf1AlgorithmID(mgf1 crypto.Hash) AlgorithmID {
 	}
 }
 
-type emptyResponse struct{}
+type EmptyResponse struct{}
 
-func (emptyResponse) Parse(b []byte) error {
+func (EmptyResponse) Parse(b []byte) error {
 	if len(b) != 0 {
 		return badLength()
 	}
@@ -133,7 +133,7 @@ func (c *AuthenticateSessionCommand) Serialize(out []byte) []byte {
 	return Append(out, c.CMAC[:])
 }
 
-type AuthenticateSessionResponse = emptyResponse
+type AuthenticateSessionResponse = EmptyResponse
 
 type CloseSessionCommand struct{}
 
@@ -145,7 +145,7 @@ func (c CloseSessionCommand) Serialize(out []byte) []byte {
 	return makeCmd(out, c, 0)
 }
 
-type CloseSessionResponse = emptyResponse
+type CloseSessionResponse = EmptyResponse
 
 type DeviceInfoCommand struct{}
 
@@ -398,7 +398,7 @@ func (s *SignPSSCommand) ID() CommandID {
 func (s *SignPSSCommand) Serialize(out []byte) []byte {
 	out = makeCmd(out, s, 2+1+2+len(s.Digest))
 	out = Append16(out, s.KeyID)
-	out = Append8(out, mgf1AlgorithmID(s.MGF1))
+	out = Append8(out, Mgf1AlgorithmID(s.MGF1))
 	out = Append16(out, s.SaltLen)
 	return Append(out, s.Digest)
 }
@@ -436,7 +436,7 @@ func (d *DecryptOAEPCommand) Serialize(out []byte) []byte {
 
 	out = makeCmd(out, d, 2+1+len(d.CipherText)+digest.Size())
 	out = Append16(out, d.KeyID)
-	out = Append8(out, mgf1AlgorithmID(d.MGF1))
+	out = Append8(out, Mgf1AlgorithmID(d.MGF1))
 	out = Append(out, d.CipherText)
 	return digest.Sum(out)
 }

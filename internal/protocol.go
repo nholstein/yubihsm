@@ -165,7 +165,7 @@ const (
 	CommandDecryptAESCBC
 	CommandEncryptAEDCBC
 
-	commandError = 0x7f
+	CommandError = 0x7f
 )
 
 // TypeID is the cryptographic type of an object on the YubiHSM.
@@ -191,24 +191,24 @@ const (
 type Error uint8
 
 const (
-	errSuccess                Error = iota // success
-	errUnknownCommand                      // unknown command
-	errMalformedCommand                    // malformed data for the command
-	errSessionExpiredOrDNE                 // the session has expired or does not exist
-	errWrongAuthenticationKey              // wrong authentication key
-	errNoMoreSessions                      // no more available sessions
-	errSessionSetupFailed                  // session setup failed
-	errStorageFull                         // storage full
-	errWrongLength                         // wrong data length for the command
-	errPermisions                          // insufficient permissions for the command
-	errAuditLogFull                        // the log is full and force audit is enabled
-	errNoMatchingObject                    // no object found matching given ID and Type
-	errInvalidID                           // invalid ID
+	ErrSuccess                Error = iota // success
+	ErrUnknownCommand                      // unknown command
+	ErrMalformedCommand                    // malformed data for the command
+	ErrSessionExpiredOrDNE                 // the session has expired or does not exist
+	ErrWrongAuthenticationKey              // wrong authentication key
+	ErrNoMoreSessions                      // no more available sessions
+	ErrSessionSetupFailed                  // session setup failed
+	ErrStorageFull                         // storage full
+	ErrWrongLength                         // wrong data length for the command
+	ErrPermisions                          // insufficient permissions for the command
+	ErrAuditLogFull                        // the log is full and force audit is enabled
+	ErrNoMatchingObject                    // no object found matching given ID and Type
+	ErrInvalidID                           // invalid ID
 	_                                      // 0x0D undocumented
-	errSSHConstraintsFailed                // constraints in SSH Template not met
-	errOTPDecryptionFailed                 // OTP decryption failed
-	errDemoPowerCycle                      // demo device must be power-cycled
-	errUnableToOverwrite                   // unable to overwrite object
+	ErrSSHConstraintsFailed                // constraints in SSH Template not met
+	ErrOTPDecryptionFailed                 // OTP decryption failed
+	ErrDemoPowerCycle                      // demo device must be power-cycled
+	ErrUnableToOverwrite                   // unable to overwrite object
 )
 
 // Error implements [error.Error].
@@ -217,7 +217,7 @@ func (e Error) Error() string {
 }
 
 // ErrRsaDecryptFailed is the error from a failed RSA decryption command.
-const ErrRsaDecryptFailed = errMalformedCommand
+const ErrRsaDecryptFailed = ErrMalformedCommand
 
 func parseError(buf []byte) error {
 	var e Error
@@ -248,7 +248,7 @@ func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 	case len(buf)-HeaderLength < rspLen:
 		return errors.New("invalid response message length")
 
-	case rspCmdID == commandError:
+	case rspCmdID == CommandError:
 		return parseError(buf)
 
 	case rspCmdID != CommandResponse|cmdID:

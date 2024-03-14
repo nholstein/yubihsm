@@ -1,33 +1,57 @@
-package yubihsm
+package yubihsm_test
 
 import (
 	"bytes"
 	"crypto"
 	"errors"
 	"testing"
+
+	yubihsm "github.com/nholstein/yubihsm/internal"
 )
 
-var commands = map[CommandID]func() (Command, Response){
-	CommandAuthenticateSession: func() (Command, Response) { return &AuthenticateSessionCommand{}, &AuthenticateSessionResponse{} },
-	CommandCloseSession:        func() (Command, Response) { return CloseSessionCommand{}, &CloseSessionResponse{} },
-	CommandCreateSession:       func() (Command, Response) { return &CreateSessionCommand{}, &CreateSessionResponse{} },
-	CommandEcho:                func() (Command, Response) { return Echo{}, &Echo{} },
-	CommandGetDeviceInfo:       func() (Command, Response) { return DeviceInfoCommand{}, &DeviceInfoResponse{} },
-	CommandGetPublicKey:        func() (Command, Response) { return &GetPublicKeyCommand{}, &GetPublicKeyResponse{} },
-	CommandListObjects:         func() (Command, Response) { return ListObjectsCommand{}, &ListObjectsResponse{} },
-	CommandSignECDSA:           func() (Command, Response) { return &SignECDSACommand{}, &SignResponse{} },
-	CommandSignEdDSA:           func() (Command, Response) { return &SignEdDSACommand{}, &SignResponse{} },
-	CommandSignPKCS1v15:        func() (Command, Response) { return &SignPKCS1v15Command{}, &SignResponse{} },
-	CommandSignPSS:             func() (Command, Response) { return &SignPSSCommand{}, &SignResponse{} },
-	CommandDecryptPKCS1v15:     func() (Command, Response) { return &DecryptPKCS1v15Command{}, &DecryptResponse{} },
-	CommandDecryptOAEP:         func() (Command, Response) { return &DecryptOAEPCommand{LabelHash: crypto.SHA256}, &DecryptResponse{} },
+var commands = map[yubihsm.CommandID]func() (yubihsm.Command, yubihsm.Response){
+	yubihsm.CommandAuthenticateSession: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.AuthenticateSessionCommand{}, &yubihsm.AuthenticateSessionResponse{}
+	},
+	yubihsm.CommandCloseSession: func() (yubihsm.Command, yubihsm.Response) {
+		return yubihsm.CloseSessionCommand{}, &yubihsm.CloseSessionResponse{}
+	},
+	yubihsm.CommandCreateSession: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.CreateSessionCommand{}, &yubihsm.CreateSessionResponse{}
+	},
+	yubihsm.CommandEcho: func() (yubihsm.Command, yubihsm.Response) { return yubihsm.Echo{}, &yubihsm.Echo{} },
+	yubihsm.CommandGetDeviceInfo: func() (yubihsm.Command, yubihsm.Response) {
+		return yubihsm.DeviceInfoCommand{}, &yubihsm.DeviceInfoResponse{}
+	},
+	yubihsm.CommandGetPublicKey: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.GetPublicKeyCommand{}, &yubihsm.GetPublicKeyResponse{}
+	},
+	yubihsm.CommandListObjects: func() (yubihsm.Command, yubihsm.Response) {
+		return yubihsm.ListObjectsCommand{}, &yubihsm.ListObjectsResponse{}
+	},
+	yubihsm.CommandSignECDSA: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.SignECDSACommand{}, &yubihsm.SignResponse{}
+	},
+	yubihsm.CommandSignEdDSA: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.SignEdDSACommand{}, &yubihsm.SignResponse{}
+	},
+	yubihsm.CommandSignPKCS1v15: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.SignPKCS1v15Command{}, &yubihsm.SignResponse{}
+	},
+	yubihsm.CommandSignPSS: func() (yubihsm.Command, yubihsm.Response) { return &yubihsm.SignPSSCommand{}, &yubihsm.SignResponse{} },
+	yubihsm.CommandDecryptPKCS1v15: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.DecryptPKCS1v15Command{}, &yubihsm.DecryptResponse{}
+	},
+	yubihsm.CommandDecryptOAEP: func() (yubihsm.Command, yubihsm.Response) {
+		return &yubihsm.DecryptOAEPCommand{LabelHash: crypto.SHA256}, &yubihsm.DecryptResponse{}
+	},
 
 	// fake it, errors processed within ParseResponse
-	commandError: func() (Command, Response) { return Echo{}, &emptyResponse{} },
+	yubihsm.CommandError: func() (yubihsm.Command, yubihsm.Response) { return yubihsm.Echo{}, &yubihsm.EmptyResponse{} },
 }
 
-func createResponse(in []byte) (CommandID, Response) {
-	cmdID := CommandID(in[0] &^ 0x80)
+func createResponse(in []byte) (yubihsm.CommandID, yubihsm.Response) {
+	cmdID := yubihsm.CommandID(in[0] &^ 0x80)
 	command, ok := commands[cmdID]
 	if !ok {
 		return 0, nil
@@ -45,7 +69,7 @@ func TestMGF1(t *testing.T) {
 		crypto.SHA384: 34,
 		crypto.SHA512: 35,
 	} {
-		got := mgf1AlgorithmID(hash)
+		got := yubihsm.Mgf1AlgorithmID(hash)
 		if int(got) != expect {
 			t.Errorf("%v: got: %d expect: %d", hash, got, expect)
 		}
@@ -68,14 +92,14 @@ func TestResponseParseErrors(t *testing.T) {
 		{
 			name:   "short device info",
 			buf:    []byte{0x86, 0x0, 0x08, 0x2, 0x0, 0x0, 0x7, 0x5b, 0xcd, 0x15, 0x3e, 0x80, 0x0, 0x0, 0x0, 0x0},
-			expect: &InvalidLengthError{},
+			expect: &yubihsm.InvalidLengthError{},
 		},
 	} {
 		cmdID, rsp := createResponse(test.buf)
 		if rsp == nil {
 			t.Errorf("%s: failed to create response object", test.name)
 		} else {
-			got := ParseResponse(cmdID, rsp, test.buf)
+			got := yubihsm.ParseResponse(cmdID, rsp, test.buf)
 			checkError(t, test.name, test.expect, got)
 		}
 	}
@@ -122,9 +146,9 @@ func TestListObjects(t *testing.T) {
 		"test-rsa3072": []byte{0x48, 0x0, 0x2b, 0x2, 0x3, 0x6, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x72, 0x73, 0x61, 0x33, 0x30, 0x37, 0x32, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
 		"test-rsa4096": []byte{0x48, 0x0, 0x2b, 0x2, 0x3, 0x6, 0x74, 0x65, 0x73, 0x74, 0x2d, 0x72, 0x73, 0x61, 0x34, 0x30, 0x39, 0x36, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
 	} {
-		cmd := ListObjectsCommand{
-			TypeFilter(TypeAsymmetricKey),
-			LabelFilter(label),
+		cmd := yubihsm.ListObjectsCommand{
+			yubihsm.TypeFilter(yubihsm.TypeAsymmetricKey),
+			yubihsm.LabelFilter(label),
 		}
 		var buf [256]byte
 		got := cmd.Serialize(buf[:0])
@@ -140,7 +164,7 @@ func TestListObjects(t *testing.T) {
 }
 
 func TestResponseParsing(t *testing.T) {
-	var e Error
+	var e yubihsm.Error
 
 	for _, buf := range responseCorpus {
 		cmdID, rsp := createResponse(buf)
@@ -148,7 +172,7 @@ func TestResponseParsing(t *testing.T) {
 			t.Errorf("unsupported input response %x", buf)
 			continue
 		}
-		err := ParseResponse(cmdID, rsp, buf)
+		err := yubihsm.ParseResponse(cmdID, rsp, buf)
 		if err != nil && !errors.As(err, &e) {
 			t.Errorf("failed to parse %T from %x: %v", rsp, buf, err)
 		}
@@ -171,7 +195,7 @@ func FuzzResponseParsing(f *testing.F) {
 		}
 
 		t.Logf("parsing %T from %x", rsp, in)
-		err := ParseResponse(cmdID, rsp, in)
+		err := yubihsm.ParseResponse(cmdID, rsp, in)
 		t.Logf("  -> %v", err)
 	})
 }
