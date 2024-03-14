@@ -77,12 +77,3 @@
 //
 // [What is YubiHSM2]: https://developers.yubico.com/YubiHSM2/
 package yubihsm
-
-// checkErr squelches a return value if an error is given.
-func checkErr[V any](value V, err error) (V, error) { //nolint:ireturn
-	if err != nil {
-		var zero V
-		return zero, err
-	}
-	return value, nil
-}

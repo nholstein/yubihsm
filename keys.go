@@ -227,7 +227,7 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 		})
 
 		if o.SessionKeyLen > 0 && errors.Is(err, yubihsm.ErrRsaDecryptFailed) {
-			return readRand(o.SessionKeyLen)
+			return readFullOrErr(rand.Reader, o.SessionKeyLen)
 		}
 
 		return rsp, err
@@ -252,11 +252,16 @@ func (k *KeyPair) decrypt(ctx context.Context, conn Connector, session *Session,
 	return rsp, err
 }
 
-// readRand returns a random byte slice from [crypto/rand.Reader].
-func readRand(n int) ([]byte, error) {
+// readFullOrErr extends reads exactly [n] bytes or else it returns an
+// error. (Contrast to [io.ReadFull] or [crypto/rand.Read], either of
+// which can return a non-nil buffer with a non-nill error.
+func readFullOrErr(rd io.Reader, n int) ([]byte, error) {
 	buf := make([]byte, n)
-	_, err := rand.Read(buf)
-	return checkErr(buf, err)
+	nn, err := io.ReadFull(rd, buf)
+	if nn != n {
+		return nil, err
+	}
+	return buf, nil
 }
 
 // AsCryptoDecrypter wraps the keypair into a type which can be used with

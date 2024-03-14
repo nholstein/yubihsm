@@ -1,13 +1,13 @@
-package yubihsm
+package yubihsm_test
 
 import (
 	"crypto/sha256"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"testing"
 
+	yubihsm "github.com/nholstein/yubihsm/internal"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -67,14 +67,10 @@ func defaultMACKey() (key SessionKey) {
 	}
 }
 
-func TestCheckErr(t *testing.T) {
-	slice, err := checkErr([]byte{1, 2}, errors.New("error"))
-	if err == nil || slice != nil {
-		t.Errorf("should return (nil, error)")
-	}
-
-	str, err := checkErr("foo", errors.New("error"))
-	if err == nil || str != "" {
-		t.Errorf("should return (\"\", error)")
+func TestReadFullOrErr(t *testing.T) {
+	rd := strings.NewReader("ElevenBytes")
+	buf, err := readFullOrErr(rd, 12)
+	if buf != nil || err == nil {
+		t.Errorf("%x, %v", buf, err)
 	}
 }
