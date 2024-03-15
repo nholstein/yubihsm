@@ -20,10 +20,6 @@ import (
 	yubihsm "github.com/nholstein/yubihsm/internal"
 )
 
-// Run to rederive the default authentication key. This value will never
-// change, so you shouldn't ever need to run this.
-//go:generate go test github.com/nholstein/yubihsm -generate-default-key
-
 const (
 	// The length of the keys used for AES encryption and MACs.
 	sessionKeyLen = 16
@@ -97,7 +93,11 @@ func (c *authConfig) authKeys() (SessionKey, SessionKey) {
 	if c.hasKeys {
 		return c.encKey, c.macKey
 	}
-	return defaultEncryptionKey(), defaultMACKey()
+
+	// The default encryption and MAC key, derived from "password".
+	// See [TestGenerateDefaultKey] for details.
+	return SessionKey{0x9, 0xb, 0x47, 0xdb, 0xed, 0x59, 0x56, 0x54, 0x90, 0x1d, 0xee, 0x1c, 0xc6, 0x55, 0xe4, 0x20},
+		SessionKey{0x59, 0x2f, 0xd4, 0x83, 0xf7, 0x59, 0xe2, 0x99, 0x9, 0xa0, 0x4c, 0x45, 0x5, 0xd2, 0xce, 0xa}
 }
 
 func (c *authConfig) apply(s *Session, options []AuthenticationOption) error {
