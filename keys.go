@@ -99,10 +99,10 @@ func (k *KeyPair) signEd25519(ctx context.Context, conn Connector, session *Sess
 
 	switch {
 	case hash == crypto.SHA512: // Ed25519ph
-		return nil, errors.New("Ed25519ph is not supported by the YubiHSM2")
+		return nil, Error("Ed25519ph is not supported by the YubiHSM2")
 
 	case hash == crypto.Hash(0) && context != "": // Ed25519ctx
-		return nil, errors.New("Ed25519ctx is not supported by the YubiHSM2")
+		return nil, Error("Ed25519ctx is not supported by the YubiHSM2")
 
 	case hash == crypto.Hash(0): // Ed25519
 		return k.sign(ctx, conn, session, &yubihsm.SignEdDSACommand{
@@ -111,7 +111,7 @@ func (k *KeyPair) signEd25519(ctx context.Context, conn Connector, session *Sess
 		})
 
 	default:
-		return nil, errors.New("ed25519: expected opts.HashFunc() zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
+		return nil, Error("ed25519: expected opts.HashFunc() zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
 	}
 }
 
@@ -161,12 +161,12 @@ func pssOptions(pub *rsa.PublicKey, pss *rsa.PSSOptions) (crypto.Hash, int, erro
 		// If we get here saltLength is either > 0 or < -1, in the
 		// latter case we fail out.
 		if saltLen <= 0 {
-			return 0, 0, errors.New("crypto/rsa: PSSOptions.SaltLength cannot be negative or greater than 65535")
+			return 0, 0, Error("crypto/rsa: PSSOptions.SaltLength cannot be negative or greater than 65535")
 		}
 	}
 
 	if saltLen >= 1<<16 {
-		return 0, 0, errors.New("RSA PSS salt too long")
+		return 0, 0, Error("RSA PSS salt too long")
 	}
 
 	return hash, saltLen, nil
@@ -210,7 +210,7 @@ func (k *KeyPair) AsCryptoSigner(ctx context.Context, conn Connector, session *S
 func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session, ciphertext []byte, opts crypto.DecrypterOpts) ([]byte, error) {
 	_, ok := k.publicKey.(*rsa.PublicKey)
 	if !ok {
-		return nil, errors.New("unsupported crypto.Decrypter")
+		return nil, Error("unsupported crypto.Decrypter")
 	}
 
 	switch o := opts.(type) {
@@ -242,7 +242,7 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 		})
 
 	default:
-		return nil, errors.New("unsupported RSA decryption algorithm")
+		return nil, Error("unsupported RSA decryption algorithm")
 	}
 }
 

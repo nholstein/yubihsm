@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 
@@ -124,7 +123,7 @@ func deriveAuthenticationKeys(password string) (encryptionKey, macKey SessionKey
 func WithAuthenticationKeys(encryptionKey, macKey SessionKey) AuthenticationOption {
 	return func(_ *Session, c *authConfig) error {
 		if c.hasKeys {
-			return errors.New("authentication keys/password specified multiple times")
+			return Error("authentication keys/password specified multiple times")
 		}
 
 		c.encKey = encryptionKey
@@ -240,7 +239,7 @@ func (s *session) authenticateSession(encKey, macKey SessionKey, hostChallenge y
 
 	cardCryptogram := deriveCryptogram(0, macKey, hostChallenge, create.CardChallenge)
 	if subtle.ConstantTimeCompare(cardCryptogram[:], create.CardCryptogram[:]) != 1 {
-		return nil, errors.New("card cryptogram MAC incorrect")
+		return nil, Error("card cryptogram MAC incorrect")
 	}
 
 	s.encryptionKey = encKey
@@ -379,7 +378,7 @@ func (s *Session) Ping(ctx context.Context, conn Connector, data ...byte) error 
 	if err != nil {
 		return err
 	} else if !bytes.Equal(data, pingPong) {
-		return errors.New("pong response incorrect")
+		return Error("pong response incorrect")
 	}
 
 	return nil
@@ -424,12 +423,12 @@ func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string)
 		return nil, err
 
 	case len(rsp) == 0:
-		return nil, fmt.Errorf("could not find asymmetric-key labeled %q", label)
+		return nil, yubihsm.Errorf("could not find asymmetric-key labeled %q", label)
 
 	case len(rsp) > 1:
 		// This should be impossible, keys are identified via
 		// the (type, ID) pair.
-		return nil, fmt.Errorf("HSM error: found %d asymmetric-keys labeled %q", len(rsp), label)
+		return nil, yubihsm.Errorf("HSM error: found %d asymmetric-keys labeled %q", len(rsp), label)
 	}
 
 	keyID := rsp[0].Object
@@ -608,7 +607,7 @@ func (d *decryptResponse) decryptSessionResponse(message []byte) ([]byte, error)
 		return nil, ErrInvalidMessage
 
 	case message[yubihsm.HeaderLength] != d.sessionID:
-		return nil, fmt.Errorf("session %d received response for session %d", d.sessionID, message[3])
+		return nil, yubihsm.Errorf("session %d received response for session %d", d.sessionID, message[3])
 	}
 
 	// Verify the response MAC by comparing it to the expected value.

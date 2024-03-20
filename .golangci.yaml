@@ -6,7 +6,6 @@ linters:
   disable:
     - exhaustruct
     - godox
-    - goerr113
     - lll
     - nlreturn
     - nonamedreturns

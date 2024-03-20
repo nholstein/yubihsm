@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
-	"errors"
 	"fmt"
 	"math/big"
 )
@@ -55,7 +54,7 @@ type EmptyResponse struct{}
 
 func (EmptyResponse) Parse(b []byte) error {
 	if len(b) != 0 {
-		return badLength()
+		return errInvalidLength
 	}
 	return nil
 }
@@ -106,7 +105,7 @@ type CreateSessionResponse struct {
 
 func (r *CreateSessionResponse) Parse(b []byte) error {
 	if len(b) != 17 {
-		return badLength()
+		return errInvalidLength
 	}
 
 	r.SessionID = b[0]
@@ -167,7 +166,7 @@ type DeviceInfoResponse struct {
 
 func (r *DeviceInfoResponse) Parse(b []byte) error {
 	if len(b) < 9 {
-		return badLength()
+		return errInvalidLength
 	}
 
 	r.Version = fmt.Sprintf("%d.%d.%d", b[0], b[1], b[2])
@@ -176,8 +175,8 @@ func (r *DeviceInfoResponse) Parse(b []byte) error {
 	r.LogLines = b[8]
 	r.Algorithms = 0
 	for _, a := range b[9:] {
-		if a >= 64 {
-			return fmt.Errorf("invalid algorithm %d", a)
+		if a >= algorithmMax {
+			return errUnsupportedAlgorithm
 		}
 		r.Algorithms |= 1 << a
 	}
@@ -205,7 +204,7 @@ type GetPublicKeyResponse struct {
 //nolint:cyclop
 func (g *GetPublicKeyResponse) Parse(b []byte) error {
 	if len(b) < 1 {
-		return badLength()
+		return errInvalidLength
 	}
 
 	a := AlgorithmID(b[0])
@@ -215,7 +214,7 @@ func (g *GetPublicKeyResponse) Parse(b []byte) error {
 	switch a {
 	case AlgorithmED25519:
 		if len(b) != ed25519.PublicKeySize {
-			return errors.New("invalid Ed25519 public key")
+			return errInvalidEd25519
 		}
 		g.PublicKey = ed25519.PublicKey(b)
 		return nil
@@ -237,13 +236,13 @@ func (g *GetPublicKeyResponse) Parse(b []byte) error {
 		return g.parsePublicKeyECDSA(b, elliptic.P521())
 
 	default:
-		return fmt.Errorf("unsupported public key algorithm: %v", a)
+		return Errorf("unsupported public key algorithm: %v", a)
 	}
 }
 
 func (g *GetPublicKeyResponse) parsePublicKeyRSA(b []byte, bytes int) error {
 	if len(b) != bytes {
-		return errors.New("invalid RSA public key length")
+		return errInvalidRSA
 	}
 
 	var n big.Int
@@ -261,7 +260,7 @@ func (g *GetPublicKeyResponse) parsePublicKeyECDSA(b []byte, curve elliptic.Curv
 	x.SetBytes(b[:len(b)/2])
 	y.SetBytes(b[len(b)/2:])
 	if !curve.IsOnCurve(&x, &y) {
-		return errors.New("invalid ECDSA public key")
+		return errInvalidECDSA
 	}
 
 	g.PublicKey = &ecdsa.PublicKey{
@@ -340,7 +339,7 @@ func (l *ListObjectsResponse) Parse(b []byte) error {
 	}
 
 	if len(b) != 0 {
-		return errors.New("trailing bytes in list-objects response")
+		return errTrailingBytes
 	}
 	return nil
 }

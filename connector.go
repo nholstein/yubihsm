@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 
@@ -115,7 +114,7 @@ func (h *HTTPConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, er
 	defer func() { _ = rsp.Body.Close() }()
 
 	if rsp.StatusCode < http.StatusOK || rsp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("connector command failed: %s", rsp.Status)
+		return nil, yubihsm.Errorf("connector command failed: %s", rsp.Status)
 	}
 
 	return io.ReadAll(rsp.Body)

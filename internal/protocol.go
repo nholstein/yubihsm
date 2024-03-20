@@ -3,24 +3,11 @@
 package yubihsm
 
 import (
-	"errors"
 	"fmt"
 	"math/bits"
 )
 
 //go:generate go run golang.org/x/tools/cmd/stringer -linecomment -output=protocol_string.go -type=AlgorithmID,CommandID,Error,TypeID
-
-// InvalidLengthError is the error returned when a received YubiHSM2
-// message has an invalid length.
-type InvalidLengthError struct{}
-
-func (InvalidLengthError) Error() string {
-	return "invalid response length"
-}
-
-func badLength() error {
-	return InvalidLengthError{}
-}
 
 // ObjectID identifies a key or other object stored on a YubiHSM2.
 //
@@ -88,6 +75,7 @@ const (
 	AlgorithmAES256
 	AlgorithmAESECB
 	AlgorithmAESCBC
+	algorithmMax = iota
 )
 
 // CommandID is the identified value for a (request, response) message
@@ -213,7 +201,7 @@ const (
 
 // Error implements [error.Error].
 func (e Error) Error() string {
-	return e.String()
+	return fmt.Sprintf("error response (%d): %s", int(e), e.String())
 }
 
 // ErrRsaDecryptFailed is the error from a failed RSA decryption command.
@@ -224,7 +212,7 @@ func parseError(buf []byte) error {
 	if len(buf) > HeaderLength {
 		e = Error(buf[HeaderLength])
 	}
-	return fmt.Errorf("received an error response: (%d) %w", int(e), e)
+	return e
 }
 
 // Command is a serializable message sent to the YubiHSM2.
@@ -240,19 +228,19 @@ type Response interface {
 
 func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 	if len(buf) < HeaderLength {
-		return errors.New("response message too short")
+		return errInvalidLength
 	}
 
 	rspCmdID, rspLen := ParseHeader(buf)
 	switch {
 	case len(buf)-HeaderLength < rspLen:
-		return errors.New("invalid response message length")
+		return errInvalidLength
 
 	case rspCmdID == CommandError:
 		return parseError(buf)
 
 	case rspCmdID != CommandResponse|cmdID:
-		return fmt.Errorf("received a response for a different command: %#02x", int(rspCmdID))
+		return Errorf("received a response for a different command: %#02x", int(rspCmdID))
 	}
 
 	var padding uint
@@ -260,7 +248,7 @@ func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 		padding |= uint(p) ^ (uint(i)-1)>>(bits.UintSize-1)<<(8-1) //nolint:gomnd
 	}
 	if padding != 0 {
-		return errors.New("invalid response message padding")
+		return errInvalidPadding
 	}
 
 	return rsp.Parse(buf[HeaderLength : HeaderLength+rspLen])

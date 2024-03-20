@@ -77,3 +77,11 @@
 //
 // [What is YubiHSM2]: https://developers.yubico.com/YubiHSM2/
 package yubihsm
+
+import (
+	yubihsm "github.com/nholstein/yubihsm/internal"
+)
+
+// Error is the error type for a protocol error arising from an invalid
+// response from a YubiHSM2.
+type Error = yubihsm.LogicError
