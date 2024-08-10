@@ -32,7 +32,7 @@ type KeyPair struct {
 
 // Public returns the public key. It implements [crypto.PrivateKey].
 //
-// It will be either an [rsa.PublicKey], [ecdsa.PublicKey], or [ed25519.PublicKey]
+// It will be either an [*rsa.PublicKey], [*ecdsa.PublicKey], or [ed25519.PublicKey]
 // depending upon the type of the key in the YubiHSM.
 func (k *KeyPair) Public() crypto.PublicKey {
 	return k.publicKey

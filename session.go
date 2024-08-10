@@ -387,7 +387,7 @@ func (s *Session) Ping(ctx context.Context, conn Connector, data ...byte) error 
 // getPublicKey retrieves the public half of an asymmetric keypair in
 // the HSM.
 //
-// The return public key will be one of an [*ecdsa.PublicKey],
+// The returned public key will be one of an [*ecdsa.PublicKey],
 // [ed25519.PublicKey], or an [*rsa.PublicKey].
 func (s *Session) getPublicKey(ctx context.Context, conn Connector, keyID ObjectID) (yubihsm.PublicKey, error) { //nolint:ireturn
 	cmd := yubihsm.GetPublicKeyCommand{
@@ -407,8 +407,8 @@ func (s *Session) getPublicKey(ctx context.Context, conn Connector, keyID Object
 //
 // The returned key's public will be one of an [*ecdsa.PublicKey],
 // [ed25519.PublicKey], or an [*rsa.PublicKey]. Dependent upon the key's
-// type and the [Effective Capabilities] [KeyPair.Sign] and/or
-// [KeyPair.Decrypt] will work.
+// type and the [Effective Capabilities] one or both of [KeyPair.Sign]
+// and [KeyPair.Decrypt] will work.
 //
 // [Effective Capabilities]: https://developers.yubico.com/YubiHSM2/Concepts/Effective_Capabilities.html
 func (s *Session) LoadKeyPair(ctx context.Context, conn Connector, label string) (*KeyPair, error) {
