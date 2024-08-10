@@ -449,7 +449,7 @@ func calculateCMAC(key, chaining SessionKey, cmd yubihsm.CommandID, session byte
 	// Compute the CMAC over the chaining MAC, the message header,
 	// and its contents.
 	l := 1 + macLength + len(contents)
-	header := [4]byte{byte(cmd), byte(l >> 8), byte(l), session} //nolint:gomnd
+	header := [4]byte{byte(cmd), byte(l >> 8), byte(l), session} //nolint:mnd
 	_, _ = mac.Write(chaining[:])
 	_, _ = mac.Write(header[:])
 	_, _ = mac.Write(contents)

@@ -6,6 +6,7 @@ linters:
   disable:
     - exhaustruct
     - godox
+    - gomnd
     - lll
     - nlreturn
     - nonamedreturns
@@ -13,17 +14,8 @@ linters:
     - wrapcheck
     - wsl
 
-    # Deprecated
-    - interfacer
-    - maligned
-    - exhaustivestruct
-    - varcheck
-    - scopelint
-    - deadcode
-    - nosnakecase
-    - ifshort
-    - structcheck
-    - golint
+    # deprecated
+    - execinquery
 
 linters-settings:
   depguard:
@@ -77,4 +69,4 @@ issues:
     # It's not worth specifying so many single-use constants.
     - path: "internal/commands\\.go"
       linters:
-        - gomnd
+        - mnd
