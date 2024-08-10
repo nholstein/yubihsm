@@ -404,8 +404,6 @@ func testKeyRSA(t *testing.T, bits int) {
 func TestKeyRSA(t *testing.T) {
 	t.Parallel()
 	for _, bits := range []int{2048, 3072, 4096} {
-		bits := bits
-
 		t.Run(strconv.Itoa(bits), func(t *testing.T) {
 			t.Parallel()
 			testKeyRSA(t, bits)

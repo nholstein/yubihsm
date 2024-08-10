@@ -432,7 +432,6 @@ func TestSessionLocking(t *testing.T) {
 		func() { _, _ = session.LoadKeyPair(ctx, conn, "not-a-valid-label") },
 		func() { _, _ = session.GetDeviceInfo(ctx, conn) },
 	} {
-		fn := fn
 		parallel.Add(1)
 		go func() { fn(); parallel.Done() }()
 	}
