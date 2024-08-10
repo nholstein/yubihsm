@@ -284,12 +284,18 @@ func TestSessionFiveDeviceInfos(t *testing.T) {
 			t.Fatalf("session.GetDeviceInfo(): %v", err)
 		}
 		t.Logf("devInfo: %#v", devInfo)
-		if devInfo.Version != "2.0.0" || devInfo.Serial != 123456789 {
+		if devInfo.Version != "2.0.0" ||
+			devInfo.Serial != 123456789 ||
+			devInfo.LogTotal != 62 ||
+			devInfo.LogUsed != 62 ||
+			(!trusted && devInfo.Algorithms != 0x1_ffff_ffff_fffe) ||
+			(trusted && devInfo.Algorithms != 0xffff_ffff_fffe) {
+			// Why are algorithms different in these two cases?
 			t.Error("incorrect yubihsm.rs mockhsm device info")
 		}
-		if !devInfo.Trusted && trusted {
+		if !devInfo.IsTrusted() && trusted {
 			t.Error("device info should be trusted")
-		} else if devInfo.Trusted && !trusted {
+		} else if devInfo.IsTrusted() && !trusted {
 			t.Error("device info should not be trusted")
 		}
 	}

@@ -159,8 +159,8 @@ func (d DeviceInfoCommand) Serialize(out []byte) []byte {
 type DeviceInfoResponse struct {
 	Version    string
 	Serial     uint32
-	LogStore   uint8
-	LogLines   uint8
+	LogTotal   uint8
+	LogUsed    uint8
 	Algorithms uint64
 }
 
@@ -171,8 +171,8 @@ func (r *DeviceInfoResponse) Parse(b []byte) error {
 
 	r.Version = fmt.Sprintf("%d.%d.%d", b[0], b[1], b[2])
 	Parse32(b, 3, &r.Serial)
-	r.LogStore = b[7]
-	r.LogLines = b[8]
+	r.LogTotal = b[7]
+	r.LogUsed = b[8]
 	r.Algorithms = 0
 	for _, a := range b[9:] {
 		if a >= algorithmMax {

@@ -14,20 +14,25 @@ import (
 //
 // https://developers.yubico.com/YubiHSM2/Commands/Device_Info.html
 type DeviceInfo struct {
-	// Version string. Received from the HSM.
+	// Version string of the HSM.
 	Version string
-	// Serial number. Received from the HSM.
+	// Serial number of the HSM.
 	Serial uint32
-	// LogStore size expressed in number of log entries. Received from
-	// the HSM.
-	LogStore uint8
-	// LogLines used. Received from the HSM.
-	LogLines uint8
-	// Algorithms supported by the device. Received from the HSM.
+	// LogTotal is the maximum number of entries in the audit log.
+	LogTotal uint8
+	// LogUsed is the number of entries contained in the audit log.
+	LogUsed uint8
+	// Algorithms supported by the HSM.
 	Algorithms uint64
-	// Trusted is set to [true] if and only if the information was
-	// received via an authenticated and encrypted [Session].
-	Trusted bool
+
+	// true iff this info was received via an authenticated session.
+	trusted bool
+}
+
+// IsTrusted returns [true] if and only if the information was
+// received via an authenticated and encrypted [Session].
+func (d *DeviceInfo) IsTrusted() bool {
+	return d.trusted
 }
 
 // Connector allows sending commands to a YubiHSM2.

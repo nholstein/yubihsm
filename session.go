@@ -343,10 +343,10 @@ func (s *Session) GetDeviceInfo(ctx context.Context, conn Connector) (DeviceInfo
 	return DeviceInfo{
 		Version:    rsp.Version,
 		Serial:     rsp.Serial,
-		LogStore:   rsp.LogStore,
-		LogLines:   rsp.LogLines,
+		LogTotal:   rsp.LogTotal,
+		LogUsed:    rsp.LogUsed,
 		Algorithms: rsp.Algorithms,
-		Trusted:    trusted,
+		trusted:    trusted,
 	}, nil
 }
 
