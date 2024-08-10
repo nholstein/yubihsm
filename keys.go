@@ -65,7 +65,7 @@ type cryptoPrivateKey interface {
 // or Ed25519ctx variants.
 //
 // This function will fail if the HSM key type is incompatible with
-// decryption or if the [Effective Capabilities] are insufficient.
+// signing or if the [Effective Capabilities] are insufficient.
 //
 // [Effective Capabilities]: https://developers.yubico.com/YubiHSM2/Concepts/Effective_Capabilities.html
 func (k *KeyPair) Sign(ctx context.Context, conn Connector, session *Session, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
@@ -200,8 +200,8 @@ func (k *KeyPair) AsCryptoSigner(ctx context.Context, conn Connector, session *S
 
 // Decrypt the [message] in the YubiHSM and return the plaintext.
 //
-// This mimics the semantics of [crypto.Signer.Sign], in particular the
-// value of [opt]. See the details of [rsa.PrivateKey.Decrypt].
+// This mimics the semantics of [crypto.Decrypter.Decrypt], in particular
+// the value of [opt]. See the details of [rsa.PrivateKey.Decrypt].
 //
 // This function will fail if the HSM key type is incompatible with
 // decryption or if the [Effective Capabilities] are insufficient.
@@ -274,10 +274,10 @@ func readFullOrErr(rd io.Reader, n int) ([]byte, error) {
 // practice.
 //
 // However, this is the only approach which matches the API of [crypto.Decrypter].
-// Use of [KeyPair.Sign] should be preferred whenever compatibility with
+// Use of [KeyPair.Decrypt] should be preferred whenever compatibility with
 // the standard library isn't needed.
 //
-// This does not confirm that the HSM key is compatible with signing,
+// This does not confirm that the HSM key is compatible with decrypting,
 // nor whether the [Effective Capabilities] are sufficient.
 //
 // [Effective Capabilities]: https://developers.yubico.com/YubiHSM2/Concepts/Effective_Capabilities.html
