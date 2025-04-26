@@ -23,7 +23,7 @@ jobs:
         run: 'go test -cover -race ./...'
 
       - name: 'Lint'
-        uses: 'golangci/golangci-lint-action@v6'
+        uses: 'golangci/golangci-lint-action@v7'
         with:
-          version: 'v1.59.1'
-          skip-pkg-cache: true
+          version: 'v2.1.5'
+          skip-cache: true

@@ -1,72 +1,87 @@
+version: "2"
 run:
   tests: false
-
 linters:
-  enable-all: true
+  default: all
   disable:
     - exhaustruct
+    - funcorder
     - godox
-    - gomnd
     - lll
+    - mnd
     - nlreturn
     - nonamedreturns
     - varnamelen
     - wrapcheck
     - wsl
-
-    # deprecated
-    - execinquery
-
-linters-settings:
-  depguard:
+  settings:
+    depguard:
+      rules:
+        Main:
+          allow:
+            - $gostd
+            - github.com/aead/cmac
+            - github.com/nholstein/yubihsm
+            - golang.org/x/crypto/pbkdf2
+    revive:
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: function-result-limit
+          arguments:
+            - 3
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      Main:
-        allow:
-          - "$gostd"
-          - "github.com/aead/cmac"
-          - "github.com/nholstein/yubihsm"
-
-  gci:
-    sections:
-      - standard
-      - default
-      # localmodule doesn't seem to work...
-      - prefix(github.com/nholstein/yubihsm)
-
-  revive:
-    ignore-generated-header: true
-    severity: warning
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: function-result-limit
-        arguments: [3]
-      - name: dot-imports
-      - name: empty-block
-      - name: error-naming
-      - name: error-return
-      - name: error-strings
-      - name: errorf
-      - name: exported
-      - name: increment-decrement
-      - name: indent-error-flow
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: redefines-builtin-id
-      - name: superfluous-else
-      - name: time-naming
-      - name: unexported-return
-      - name: unreachable-code
-      - name: unused-parameter
-      - name: var-declaration
-      - name: var-naming
-
-issues:
-  exclude-rules:
-    # HSM command parsing/serialization uses a bunch of byte offsets.
-    # It's not worth specifying so many single-use constants.
-    - path: "internal/commands\\.go"
-      linters:
-        - mnd
+      - linters:
+          - mnd
+        path: internal/commands\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/nholstein/yubihsm)
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

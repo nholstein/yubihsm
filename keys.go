@@ -132,7 +132,7 @@ func (k *KeyPair) signRSA(ctx context.Context, conn Connector, session *Session,
 	return k.sign(ctx, conn, session, &yubihsm.SignPSSCommand{
 		KeyID:   k.keyID,
 		MGF1:    hash,
-		SaltLen: uint16(saltLen),
+		SaltLen: uint16(saltLen & 0xffff), //nolint:gosec
 		Digest:  digest,
 	})
 }

@@ -67,7 +67,7 @@ func (s *sliceResponse) Parse(b []byte) error {
 }
 
 // Echo command and response type to/from YubiHSM2.
-type Echo []byte
+type Echo []byte //nolint:recvcheck
 
 func (Echo) ID() CommandID {
 	return CommandEcho
