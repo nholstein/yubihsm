@@ -297,11 +297,43 @@ func testKeyRSA(t *testing.T, bits int) {
 	}
 
 	t.Run("decrypt-pkcs1v15", func(t *testing.T) {
+		// Go v1.26.0 makes rsa.EncryptPKCS1v15 ignore the passed random stream
+		// and use true random data. That breaks our usage of prerecorded packets.
+		// This code contains a stripped down version of Go's implementation,
+		// but which preserves the pre v1.26 randomness behavior.
+		deterministicRsaEncryptPKCS1v15 := func(pub *rsa.PublicKey, msg []byte) ([]byte, error) {
+			copyWithLeftPad := func(dest, src []byte) {
+				numPaddingBytes := len(dest) - len(src)
+				for i := 0; i < numPaddingBytes; i++ {
+					dest[i] = 0
+				}
+				copy(dest[numPaddingBytes:], src)
+			}
+
+			k := pub.Size()
+
+			// EM = 0x00 || 0x02 || PS || 0x00 || M
+			em := make([]byte, k)
+			em[1] = 2
+			ps, mm := em[2:len(em)-len(msg)-1], em[len(em)-len(msg):]
+			for i := range ps {
+				ps[i] = 0x42
+			}
+			em[len(em)-len(msg)-1] = 0
+			copy(mm, msg)
+
+			m := new(big.Int).SetBytes(em)
+			c := new(big.Int).Exp(m, big.NewInt(int64(pub.E)), pub.N)
+
+			copyWithLeftPad(em, c.Bytes())
+			return em, nil
+		}
+
 		loadDecryptKeyPKCS1v15 := func(t *testing.T, options string) (crypto.Decrypter, []byte) {
 			t.Helper()
 
-			decrypter, public, rand := loadDecryptKey(t, "pkcs1v15", options)
-			ciphertext, err := rsa.EncryptPKCS1v15(rand, public, message)
+			decrypter, public, _ := loadDecryptKey(t, "pkcs1v15", options)
+			ciphertext, err := deterministicRsaEncryptPKCS1v15(public, message)
 			if err != nil {
 				t.Helper()
 				t.Fatalf("rsa.EncryptPKCS1v15(): %v", err)
