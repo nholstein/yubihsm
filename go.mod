@@ -1,6 +1,6 @@
 module github.com/nholstein/yubihsm
 
-go 1.24.2
+go 1.26.0
 
 require (
 	github.com/aead/cmac v0.0.0-20160719120800-7af84192f0b1
