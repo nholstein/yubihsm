@@ -148,7 +148,7 @@ func parseUsbEndpointLine(lines *bufio.Scanner) (string, []byte) {
 }
 
 func parseLoggedBytes(match []byte) (message []byte) {
-	for _, m := range strings.Fields(string(match)) {
+	for m := range strings.FieldsSeq(string(match)) {
 		b, _ := strconv.Atoi(m)
 		message = append(message, byte(b))
 	}

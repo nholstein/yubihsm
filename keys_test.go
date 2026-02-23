@@ -304,7 +304,7 @@ func testKeyRSA(t *testing.T, bits int) {
 		deterministicRsaEncryptPKCS1v15 := func(pub *rsa.PublicKey, msg []byte) ([]byte, error) {
 			copyWithLeftPad := func(dest, src []byte) {
 				numPaddingBytes := len(dest) - len(src)
-				for i := 0; i < numPaddingBytes; i++ {
+				for i := range numPaddingBytes {
 					dest[i] = 0
 				}
 				copy(dest[numPaddingBytes:], src)

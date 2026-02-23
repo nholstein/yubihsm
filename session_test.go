@@ -304,7 +304,7 @@ func TestSessionFiveDeviceInfos(t *testing.T) {
 
 	testAuthenticate(ctx, t, conn, &session, yubihsm.ReplayHostChallenges(hostChallenges)...)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		checkDeviceInfo(true)
 	}
 
@@ -370,7 +370,7 @@ func TestSessionRekey(t *testing.T) {
 	t.Logf("session authenticated; this includes one encrypted & authenticated AuthenticateSession command")
 
 	t.Run("send many message", func(t *testing.T) {
-		for i := 0; i < yubihsm.MaxMessagesBeforeRekey-1; i++ {
+		for i := range yubihsm.MaxMessagesBeforeRekey - 1 {
 			if i%100 == 0 {
 				t.Logf("sending %dth session message", i)
 			}
@@ -438,8 +438,7 @@ func TestSessionLocking(t *testing.T) {
 		func() { _, _ = session.LoadKeyPair(ctx, conn, "not-a-valid-label") },
 		func() { _, _ = session.GetDeviceInfo(ctx, conn) },
 	} {
-		parallel.Add(1)
-		go func() { fn(); parallel.Done() }()
+		parallel.Go(fn)
 	}
 
 	parallel.Wait()

@@ -38,7 +38,7 @@ func TestPut(t *testing.T) {
 
 func TestStrings(t *testing.T) {
 	t.Log("purely to push coverage arbitrarily close to 100%")
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		t.Logf("%v", yubihsm.CommandID(i))
 		t.Logf("%v", yubihsm.TypeID(i))
 	}
