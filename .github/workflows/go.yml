@@ -25,3 +25,6 @@ jobs:
         with:
           version: "v2.10.1"
           skip-cache: true
+
+      - name: "Mutesting"
+        run: "go tool github.com/zimmski/go-mutesting/cmd/go-mutesting ./..."
