@@ -160,8 +160,9 @@ func WithAuthenticationKeyID(keyID ObjectID) AuthenticationOption {
 //
 // [YubiHSM2 Session]: https://developers.yubico.com/YubiHSM2/Concepts/Session.html
 type Session struct {
-	lock sync.Mutex
 	session
+
+	lock sync.Mutex
 }
 
 // session holds the cryptographic state of a [Session]. Access to its
@@ -449,7 +450,7 @@ func calculateCMAC(key, chaining SessionKey, cmd yubihsm.CommandID, session byte
 	// Compute the CMAC over the chaining MAC, the message header,
 	// and its contents.
 	l := 1 + macLength + len(contents)
-	header := [4]byte{byte(cmd), byte(l >> 8), byte(l), session} //nolint:mnd
+	header := [4]byte{byte(cmd), byte((l >> 8) & 0xff), byte(l & 0xff), session} //nolint:mnd
 	_, _ = mac.Write(chaining[:])
 	_, _ = mac.Write(header[:])
 	_, _ = mac.Write(contents)

@@ -112,7 +112,9 @@ func (h *HTTPConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, er
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 
-	rsp, err := client.Do(req)
+	// G704: SSRF via taint analysis. The URL is a configuration flag,
+	// noy controllable from an attacker.
+	rsp, err := client.Do(req) //nolint: gosec
 	if err != nil {
 		return nil, err
 	}

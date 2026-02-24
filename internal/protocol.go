@@ -245,8 +245,7 @@ func ParseResponse(cmdID CommandID, rsp Response, buf []byte) error {
 
 	var padding uint
 	for i, p := range buf[HeaderLength+rspLen:] {
-		u := uint(i)                                         //nolint:gosec
-		padding |= uint(p) ^ (u-1)>>(bits.UintSize-1)<<(8-1) //nolint:mnd
+		padding |= uint(p) ^ uint(i-1)>>(bits.UintSize-1)<<(8-1) //nolint:mnd
 	}
 	if padding != 0 {
 		return errInvalidPadding

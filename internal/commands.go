@@ -24,7 +24,7 @@ type PublicKey interface {
 }
 
 func makeCmd(out []byte, c Command, l int) []byte {
-	return append(out, byte(c.ID()), byte(l>>8), byte(l))
+	return append(out, byte(c.ID()), byte((l>>8)&0xff), byte(l&0xff))
 }
 
 func makeObjectDataCmd(out []byte, c Command, keyID ObjectID, data []byte) []byte {
@@ -259,7 +259,7 @@ func (g *GetPublicKeyResponse) parsePublicKeyECDSA(b []byte, curve elliptic.Curv
 	var x, y big.Int
 	x.SetBytes(b[:len(b)/2])
 	y.SetBytes(b[len(b)/2:])
-	if !curve.IsOnCurve(&x, &y) {
+	if !curve.IsOnCurve(&x, &y) { //nolint: staticcheck
 		return errInvalidECDSA
 	}
 

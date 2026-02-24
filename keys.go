@@ -132,7 +132,7 @@ func (k *KeyPair) signRSA(ctx context.Context, conn Connector, session *Session,
 	return k.sign(ctx, conn, session, &yubihsm.SignPSSCommand{
 		KeyID:   k.keyID,
 		MGF1:    hash,
-		SaltLen: uint16(saltLen & 0xffff), //nolint:gosec
+		SaltLen: uint16(saltLen & 0xffff),
 		Digest:  digest,
 	})
 }
@@ -220,7 +220,7 @@ func (k *KeyPair) Decrypt(ctx context.Context, conn Connector, session *Session,
 			CipherText: ciphertext,
 		})
 
-	case *rsa.PKCS1v15DecryptOptions:
+	case *rsa.PKCS1v15DecryptOptions: //nolint: staticcheck
 		rsp, err := k.decrypt(ctx, conn, session, &yubihsm.DecryptPKCS1v15Command{
 			KeyID:      k.keyID,
 			CipherText: ciphertext,
