@@ -175,7 +175,7 @@ func (r *DeviceInfoResponse) Parse(b []byte) error {
 	r.LogUsed = b[8]
 	r.Algorithms = 0
 	for _, a := range b[9:] {
-		if a >= algorithmMax {
+		if a >= 64 {
 			return errUnsupportedAlgorithm
 		}
 		r.Algorithms |= 1 << a

@@ -75,7 +75,6 @@ const (
 	AlgorithmAES256
 	AlgorithmAESECB
 	AlgorithmAESCBC
-	algorithmMax = iota
 )
 
 // CommandID is the identified value for a (request, response) message
