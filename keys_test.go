@@ -66,7 +66,7 @@ func TestCryptoPrivateKey(t *testing.T) {
 	// [crypto.PrivateKey.Public] the [yubihsm.KeyPair.Public] method is
 	// tested as well.
 
-	signerP256 := privP256.AsCryptoSigner(nil, nil, nil)
+	signerP256 := privP256.AsCryptoSigner(t.Context(), nil, nil)
 	cryptoP256 := signerP256.(yubihsm.CryptoPrivateKey)
 	if !cryptoP256.Equal(signerP256) ||
 		!cryptoP256.Equal(cryptoP256) ||
@@ -80,7 +80,7 @@ func TestCryptoPrivateKey(t *testing.T) {
 		}
 	}
 
-	decrypterRsa := privRsa.AsCryptoDecrypter(nil, nil, nil)
+	decrypterRsa := privRsa.AsCryptoDecrypter(t.Context(), nil, nil)
 	cryptoRsa := decrypterRsa.(yubihsm.CryptoPrivateKey)
 	if !cryptoRsa.Equal(decrypterRsa) ||
 		!cryptoRsa.Equal(cryptoRsa) ||
