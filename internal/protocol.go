@@ -7,7 +7,7 @@ import (
 	"math/bits"
 )
 
-//go:generate go run golang.org/x/tools/cmd/stringer -linecomment -output=protocol_string.go -type=AlgorithmID,CommandID,Error,TypeID
+//go:generate go tool stringer -linecomment -output=protocol_string.go -type=AlgorithmID,CommandID,Error,TypeID
 
 // ObjectID identifies a key or other object stored on a YubiHSM2.
 //
