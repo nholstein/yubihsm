@@ -173,6 +173,26 @@ func TestSessionAuthenticationFails(t *testing.T) {
 	}
 }
 
+func TestAuthenticateFailureDoesNotCommitSession(t *testing.T) {
+	t.Parallel()
+
+	ctx, conn, options := loadReplay(t, "session-authenticate-session-fails.log")
+	var session yubihsm.Session
+	err := session.Authenticate(ctx, conn, options...)
+	if err == nil {
+		t.Fatalf("session.Authenticate() should fail")
+	}
+
+	if session.SessionID() != 0 {
+		t.Errorf("SessionID() = %d, want 0", session.SessionID())
+	}
+
+	err = session.Ping(ctx, conn, 0xff)
+	if !errors.Is(err, yubihsm.ErrNotAuthenticated) {
+		t.Errorf("session.Ping() = %v, want %v", err, yubihsm.ErrNotAuthenticated)
+	}
+}
+
 func TestSessionUnauthenticatedSend(t *testing.T) {
 	t.Parallel()
 	ctx, conn, options := loadReplay(t, "session-open-close.log")
@@ -321,6 +341,21 @@ type sessionResponse struct {
 	responses [][]byte
 }
 
+type failFirstConnector struct {
+	next   yubihsm.Connector
+	err    error
+	failed bool
+}
+
+func (c *failFirstConnector) SendCommand(ctx context.Context, cmd []byte) ([]byte, error) {
+	if !c.failed {
+		c.failed = true
+		return nil, c.err
+	}
+
+	return c.next.SendCommand(ctx, cmd)
+}
+
 // SendCommand encrypts and MACs the response message using the current
 // key of the [yubihsm.Session].
 func (s *sessionResponse) SendCommand(_ context.Context, _ []byte) ([]byte, error) {
@@ -364,6 +399,24 @@ func TestBadPongData(t *testing.T) {
 	}
 }
 
+func TestCloseFailureKeepsSessionState(t *testing.T) {
+	t.Parallel()
+
+	ctx, conn, session := loadSessionResponse(t, internal.CommandEcho, 0xaa)
+	transportErr := errors.New("transport failed")
+	conn = &failFirstConnector{next: conn, err: transportErr}
+
+	err := session.Close(ctx, conn)
+	if !errors.Is(err, transportErr) {
+		t.Fatalf("session.Close() = %v, want %v", err, transportErr)
+	}
+
+	err = session.Ping(ctx, conn, 0xaa)
+	if err != nil {
+		t.Fatalf("session.Ping() after failed close: %v", err)
+	}
+}
+
 func TestSessionRekey(t *testing.T) {
 	t.Parallel()
 	ctx, conn, session := loadSessionResponse(t, internal.CommandEcho, 0xaa)
@@ -391,6 +444,9 @@ func TestSessionRekey(t *testing.T) {
 	})
 
 	t.Run("reauthenticate", func(t *testing.T) {
+		closeConn := &sessionResponse{Session: session, responses: [][]byte{makeSessionResponse(internal.CommandCloseSession)}}
+		testSessionClose(ctx, t, closeConn, session)
+
 		conn := loadReplayConnector(t, "session-open-close.log")
 		hostChallenges := conn.findHostChallenges(t)
 		testAuthenticate(ctx, t, conn, session, yubihsm.ReplayHostChallenges(hostChallenges)...)
@@ -399,6 +455,29 @@ func TestSessionRekey(t *testing.T) {
 		testSendPing(ctx, t, conn, session)
 		testSessionClose(ctx, t, conn, session)
 	})
+}
+
+func TestCloseAllowedAfterRekeyThreshold(t *testing.T) {
+	t.Parallel()
+
+	ctx, pingConn, session := loadSessionResponse(t, internal.CommandEcho, 0xaa)
+
+	for range yubihsm.MaxMessagesBeforeRekey - 1 {
+		err := session.Ping(ctx, pingConn, 0xaa)
+		if err != nil {
+			t.Fatalf("session.Ping(0xaa): %v", err)
+		}
+	}
+
+	closeConn := &sessionResponse{Session: session, responses: [][]byte{makeSessionResponse(internal.CommandCloseSession)}}
+	err := session.Close(ctx, closeConn)
+	if err != nil {
+		t.Fatalf("session.Close(): %v", err)
+	}
+
+	if session.SessionID() != 0 {
+		t.Errorf("SessionID() = %d, want 0", session.SessionID())
+	}
 }
 
 func TestPasswordAuthentication(t *testing.T) {

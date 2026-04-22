@@ -226,50 +226,49 @@ func deriveCryptogram(derivationConstant byte, key SessionKey, hostChallenge, de
 	return derived
 }
 
-// authenticateSession processes the create-session response and creates
-// an authenticate-session command. The various session authentication
-// keys and cryptograms are updated with the derived values computed from
-// the exchange.
+// deriveAuthenticatedSession processes the create-session response and
+// creates an authenticate-session command. The returned session contains
+// the cryptographic state derived from the exchange.
 //
 // https://developers.yubico.com/YubiHSM2/Commands/Create_Session.html
 // https://developers.yubico.com/YubiHSM2/Commands/Authenticate_Session.html
-func (s *session) authenticateSession(encKey, macKey SessionKey, hostChallenge yubihsm.Challenge, create *yubihsm.CreateSessionResponse) (*yubihsm.AuthenticateSessionCommand, error) {
-	rmacKey := deriveSessionKey(deriveRmacKey, macKey, hostChallenge, create.CardChallenge)
-	macKey = deriveSessionKey(deriveMacKey, macKey, hostChallenge, create.CardChallenge)
-	encKey = deriveSessionKey(deriveEncKey, encKey, hostChallenge, create.CardChallenge)
-
-	cardCryptogram := deriveCryptogram(0, macKey, hostChallenge, create.CardChallenge)
-	if subtle.ConstantTimeCompare(cardCryptogram[:], create.CardCryptogram[:]) != 1 {
-		return nil, Error("card cryptogram MAC incorrect")
+func deriveAuthenticatedSession(encKey, macKey SessionKey, hostChallenge yubihsm.Challenge, create *yubihsm.CreateSessionResponse) (session, *yubihsm.AuthenticateSessionCommand, error) {
+	next := session{
+		rmacKey:        deriveSessionKey(deriveRmacKey, macKey, hostChallenge, create.CardChallenge),
+		macKey:         deriveSessionKey(deriveMacKey, macKey, hostChallenge, create.CardChallenge),
+		encryptionKey:  deriveSessionKey(deriveEncKey, encKey, hostChallenge, create.CardChallenge),
+		sessionID:      create.SessionID,
+		messageCounter: 1,
 	}
 
-	s.encryptionKey = encKey
-	s.macKey = macKey
-	s.rmacKey = rmacKey
-	s.sessionID = create.SessionID
-	s.messageCounter = 1
+	cardCryptogram := deriveCryptogram(0, next.macKey, hostChallenge, create.CardChallenge)
+	if subtle.ConstantTimeCompare(cardCryptogram[:], create.CardCryptogram[:]) != 1 {
+		return session{}, nil, Error("card cryptogram MAC incorrect")
+	}
 
 	cmd := yubihsm.AuthenticateSessionCommand{
 		SessionID: create.SessionID,
 	}
-	cmd.HostCryptogram = deriveCryptogram(1, macKey, hostChallenge, create.CardChallenge)
-	s.macChaining = calculateCMAC(s.macKey, s.macChaining, cmd.ID(), cmd.SessionID, cmd.HostCryptogram[:])
-	copy(cmd.CMAC[:], s.macChaining[:])
+	cmd.HostCryptogram = deriveCryptogram(1, next.macKey, hostChallenge, create.CardChallenge)
+	next.macChaining = calculateCMAC(next.macKey, next.macChaining, cmd.ID(), cmd.SessionID, cmd.HostCryptogram[:])
+	copy(cmd.CMAC[:], next.macChaining[:])
 
-	return &cmd, nil
+	return next, &cmd, nil
 }
 
 // Authenticate performs the cryptographic exchange to authenticate with
 // the YubiHSM2 and establish an encrypted communication channel.
 func (s *Session) Authenticate(ctx context.Context, conn Connector, options ...AuthenticationOption) error {
 	s.lock.Lock()
-	defer s.lock.Unlock()
+	hadSession := s.messageCounter != 0
+	s.lock.Unlock()
 
-	// TODO: close the existing session?
-	// TODO: perform work in a temporary, without lock held.
-
-	// Clear out all keys when beginning authentication.
-	s.session = session{}
+	if hadSession {
+		err := s.Close(ctx, conn)
+		if err != nil && !errors.Is(err, yubihsm.ErrSessionExpiredOrDNE) {
+			return err
+		}
+	}
 
 	var config authConfig
 	err := config.apply(s, options)
@@ -289,13 +288,21 @@ func (s *Session) Authenticate(ctx context.Context, conn Connector, options ...A
 	}
 
 	encKey, macKey := config.authKeys()
-	authenticateSessionCmd, err := s.authenticateSession(encKey, macKey, createSessionCmd.HostChallenge, &createSessionRsp)
+	next, authenticateSessionCmd, err := deriveAuthenticatedSession(encKey, macKey, createSessionCmd.HostChallenge, &createSessionRsp)
 	if err != nil {
 		return err
 	}
 
 	var authenticateSessionRsp yubihsm.AuthenticateSessionResponse
-	return sendPlaintext(ctx, conn, authenticateSessionCmd, &authenticateSessionRsp)
+	err = sendPlaintext(ctx, conn, authenticateSessionCmd, &authenticateSessionRsp)
+	if err != nil {
+		return err
+	}
+
+	s.lock.Lock()
+	s.session = next
+	s.lock.Unlock()
+	return nil
 }
 
 // GetDeviceInfo retrieves the HSM's status information.
@@ -359,8 +366,6 @@ func (s *Session) GetDeviceInfo(ctx context.Context, conn Connector) (DeviceInfo
 // [context.Context] and [Connector] must be provided to send a close
 // message to the HSM.
 func (s *Session) Close(ctx context.Context, conn Connector) error {
-	// Reset the messageCounter within encryptCommand to mark the
-	// session as unauthenticated.
 	return s.sendCommand(ctx, conn, true, yubihsm.CloseSessionCommand{}, yubihsm.CloseSessionResponse{})
 }
 
@@ -464,7 +469,7 @@ func calculateCMAC(key, chaining SessionKey, cmd yubihsm.CommandID, session byte
 // provided connector, and then decrypts the response.
 //
 // It must be called with the session unlocked.
-func (s *Session) sendCommand(ctx context.Context, conn Connector, reset bool, cmd yubihsm.Command, rsp yubihsm.Response) error {
+func (s *Session) sendCommand(ctx context.Context, conn Connector, closeOnSuccess bool, cmd yubihsm.Command, rsp yubihsm.Response) error {
 	// While the largest command supported is ~2kB, this should be
 	// large enough for the majority of commands sent without causing
 	// too much heap spillage.
@@ -472,7 +477,7 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, reset bool, c
 
 	// Encrypt the command, return the encrypted command an the
 	// decryption state. This step locks the session.
-	decrypt, message, err := s.encryptCommand(cmd, buf[:0], reset)
+	decrypt, message, err := s.encryptCommand(cmd, buf[:0], closeOnSuccess)
 	if err != nil {
 		return err
 	}
@@ -493,16 +498,27 @@ func (s *Session) sendCommand(ctx context.Context, conn Connector, reset bool, c
 	}
 
 	// Validate the inner message header correctness.
-	return yubihsm.ParseResponse(cmd.ID(), rsp, message)
+	err = yubihsm.ParseResponse(cmd.ID(), rsp, message)
+	if err != nil {
+		return err
+	}
+
+	if closeOnSuccess {
+		s.lock.Lock()
+		s.session = session{}
+		s.lock.Unlock()
+	}
+
+	return nil
 }
 
-func (s *Session) encryptCommand(cmd yubihsm.Command, buf []byte, reset bool) (*decryptResponse, []byte, error) {
+func (s *Session) encryptCommand(cmd yubihsm.Command, buf []byte, allowCloseOnExhausted bool) (*decryptResponse, []byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	if s.messageCounter == 0 {
 		return nil, nil, ErrNotAuthenticated
-	} else if s.messageCounter >= maxMessagesBeforeRekey {
+	} else if s.messageCounter >= maxMessagesBeforeRekey && !allowCloseOnExhausted {
 		return nil, nil, ErrReauthenticationRequired
 	}
 
@@ -536,13 +552,8 @@ func (s *Session) encryptCommand(cmd yubihsm.Command, buf []byte, reset bool) (*
 	// Encrypt the session message and insert the CMAC.
 	block, iv := s.encryptThenMAC(message)
 
-	// Reset the messageCounter when closing a session, otherwise
-	// increment the counter .
-	if reset {
-		s.messageCounter = 0
-	} else {
-		s.messageCounter++
-	}
+	// Increment to prepare the response nonce for this message.
+	s.messageCounter++
 
 	return &decryptResponse{s.rmacKey, s.macChaining, block, iv, s.sessionID}, message, nil
 }
